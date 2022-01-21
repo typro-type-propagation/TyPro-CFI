@@ -1,0 +1,190 @@
+// Data given from the graph. If not stated otherwise, "number" is a vertex ID
+
+// "cast" edges
+//.decl SimpleCast(from:number, to:number) brie
+.decl SimpleCast2(from:number, to:number) brie
+.decl VoidCast(from:number, to:number) brie
+.decl NonVoidCast(from:number, to:number) brie
+.decl PointerCast(from:number, to:number) brie
+.decl FunctionCast(from:number, to:number) brie
+.decl FunctionCast2(from:number, to:number) brie
+.input VoidCast
+.input NonVoidCast
+//.input SimpleCast
+// "points to" edges, (x,y) means x is the pointer
+.decl PointsTo(from:number, to:number) brie
+.input PointsTo
+// "struct member" edges. In struct S {a,b: int}, we have (S,a,0) and (S,b,4)
+.decl StructMember(from:number, to:number, offset:number) brie
+.input StructMember
+// "union member" edges. In union S {a: int, b: long}, we have (S,a,"int") and (S,b,"long"). Types are replaced by unique numbers already.
+.decl UnionMember(from:number, to:number, typeid:number) brie
+.input UnionMember
+// functions of type x are expected in call c, with a arguments being passed
+.decl Call(x:number, c:symbol, a:number) brie
+.input Call
+// function f is referenced with type x. f takes <a> arguments. If v==1, f is vararg, otherwise v==0
+.decl FunctionUses(x:number, f:symbol, a:number, v:number) brie
+.input FunctionUses
+// vertex x is described as (type t, context c)
+.decl VertexTypeContext(x:number, t:symbol, c:symbol) brie
+.input VertexTypeContext
+.decl VertexTypeCall(x:number, t:symbol, c:symbol) brie
+.input VertexTypeCall
+// Function f has v in its interface. When f is leaking to another module, that module must be able to see the interface.
+.decl ExternalInterfaces(f:symbol, v:number) brie
+.input ExternalInterfaces
+// external nodes are included in every output
+.decl External(x:number) brie
+.input External
+
+// we can merge trough void*, but only once between contexts: merges that ultimately unite two void* nodes create explosions/inconsistences
+//.decl UsedVoid(x:number, y:number) brie
+.decl UsedVoidC(x:number, y:number, c1:symbol, c2:symbol) brie
+.decl NotUsedVoid(x:number, y:number) brie
+
+// Targets
+.decl CallCanTargetFunction(c:symbol, f:symbol)
+
+// Full reachability computation can be expensive. But there are only some nodes where we have to know what is reached.
+.decl ReachesComputationNecessary(x:number) brie
+ReachesComputationNecessary(x) :- PointsTo(x,_).
+ReachesComputationNecessary(x) :- StructMember(x,_,_).
+ReachesComputationNecessary(x) :- UnionMember(x,_,_).
+ReachesComputationNecessary(x) :- FunctionUses(x, _, _, _).
+ReachesComputationNecessary(x) :- External(x).
+//SimpleCast(x,y) :- ReachesComputationNecessary(x), SimpleCast(x,z), SimpleCast(z,y), x != y.
+
+NonVoidCast(x,y) :- ReachesComputationNecessary(x), NonVoidCast(x,z), NonVoidCast(z,y), x != y.
+VoidCast(x,y) :- ReachesComputationNecessary(x), NonVoidCast(x,z), VoidCast(z,y), x != y.
+//VoidCast(x,y) :- ReachesComputationNecessary(x), VoidCast(x,z), NonVoidCast(z,y), x != y.
+VoidCast(x,y) :- ReachesComputationNecessary(x), VoidCast(x,y), VoidCast(y,z), VertexTypeContext(x, _, c), VertexTypeContext(z, _, c).
+
+UsedVoidC(x,z,c1,c2) :- ReachesComputationNecessary(x), VoidCast(x,y), VoidCast(y,z), VertexTypeContext(x, _, c1), VertexTypeContext(z, _, c2), c1 != c2.
+UsedVoidC(x,y,c1,c2) :- ReachesComputationNecessary(x), NonVoidCast(x,z), UsedVoidC(z,y,c1,c2), x != y.
+//UsedVoidC(x,y,c) :- ReachesComputationNecessary(x), UsedVoidC(x,z,c), NonVoidCast(z,y), x != y.
+
+UsedVoidC(x,y,c1,c2) :- ReachesComputationNecessary(x), UsedVoidC(x,z,c1,c2), VoidCast(z,y), VertexTypeContext(z, _, c2), x != y.
+//UsedVoidC(x,y,c) :- ReachesComputationNecessary(x), VoidCast(x,z), UsedVoidC(z,y,c), x != y.
+
+//UsedVoidC(x,y,c1,c2) :- ReachesComputationNecessary(x), UsedVoidC(x,z,c1,c2), UsedVoidC(z,y,c1,c2), x != y.
+
+SimpleCast2(x,y) :- NonVoidCast(x,y).
+SimpleCast2(x,y) :- VoidCast(x,y).
+SimpleCast2(x,y) :- UsedVoidC(x,y,_,_).
+
+//SimpleCast(x,y) :- ReachesComputationNecessary(x), SimpleCast(x,z), SimpleCast(z,y), VertexTypeContext(z, v, _), (v != "void *" ; (VertexTypeContext(x,_,c), VertexTypeContext(y,_,c))), x != y.
+//SimpleCast(x,y), UsedVoid(x, y) :- ReachesComputationNecessary(x), SimpleCast(x,z), SimpleCast(z,y), (UsedVoid(x, z) ; UsedVoid(z, y)), VertexTypeContext(z, v, _), VertexTypeContext(x, _, c1), VertexTypeContext(y, _, c2), c1 != c2, v != "void *",  x != y.
+//SimpleCast(x,y), UsedVoid(x, y) :- ReachesComputationNecessary(x), SimpleCast(x,z), SimpleCast(z,y), UsedVoid(t1, t2), t1 != x, t1 != z, t2 != z, t2 != y, VertexTypeContext(z, v, _), v = "void *", VertexTypeContext(x, _, c1), VertexTypeContext(y, _, c2), c1 != c2, x != y.
+
+// pointers, v1
+PointerCast(y,z) :- PointsTo(x,y), PointsTo(x,z), y != z.
+//PointerCast(y,z) :- PointsTo(x,y), PointsTo(x,z), UsedVoid(t1, t2), t1 != x, t2 != z, t2 != y, VertexTypeContext(x, v, _), v != "void *", y != z.
+//PointerCast(y,z),  UsedVoid(y, z):- PointsTo(x,y), PointsTo(x,z), UsedVoid(t1, t2), (t1 = x ; t2 = z ; t2 = y), VertexTypeContext(x, v, _), v != "void *", y != z.
+//PointerCast(y,z) :- PointsTo(x,y), PointsTo(x,z), UsedVoid(t1, t2), t1 != x, t2 != z, t2 != y, VertexTypeContext(x, v, _), v = "void *", y != z.
+
+PointerCast(x1,y2), PointerCast(y2,x1) :- SimpleCast2(y,z), PointsTo(y,x1), PointsTo(z,y2).
+PointerCast(x1,y1), PointerCast(y1,x1) :- PointerCast(x,y), PointsTo(x,x1), PointsTo(y,y1).
+PointerCast(x1,y1), PointerCast(y1,x1) :- FunctionCast(x,y), PointsTo(x,x1), PointsTo(y,y1).
+//PointerCast(x1,y2) :- PointsTo(y,x1), PointsTo(z,y2), SimpleCast2(y,z).
+//PointerCast(y2,x1) :- PointsTo(y,x1), PointsTo(z,y2), SimpleCast2(y,z).
+//PointerCast(x1,y1) :- PointsTo(x,x1), PointsTo(y,y1), PointerCast(x,y).
+//PointerCast(y1,x1) :- PointsTo(x,x1), PointsTo(y,y1), PointerCast(x,y).
+//PointerCast(x1,y1) :- PointsTo(x,x1), PointsTo(y,y1), FunctionCast(x,y).
+//PointerCast(y1,x1) :- PointsTo(x,x1), PointsTo(y,y1), FunctionCast(x,y).
+
+// Structs
+// PointerCast(y1,x1) :- StructMember(x2,x1,offset), StructMember(y2,y1,offset), SimpleCast2(x2,y2).
+PointerCast(y1,x1) :- StructMember(x2,x1,offset), StructMember(y2,y1,offset), SimpleCast2(y2,x2).
+PointerCast(x1,y1) :- StructMember(x2,x1,offset), StructMember(y2,y1,offset), PointerCast(x2,y2).
+
+// Unions
+// PointerCast(y1,x1) :- UnionMember(x2,x1,offset), UnionMember(y2,y1,offset), SimpleCast2(x2,y2).
+PointerCast(y1,x1) :- UnionMember(x2,x1,offset), UnionMember(y2,y1,offset), SimpleCast2(y2,x2).
+PointerCast(x1,y1) :- UnionMember(x2,x1,offset), UnionMember(y2,y1,offset), PointerCast(x2,y2).
+
+// Join Structs/Unions
+SimpleCast2(x1,y1) :- StructMember(s,x1,offset), StructMember(s,y1,offset), x1 != y1.
+SimpleCast2(x1,y1) :- UnionMember(s,x1,offset), UnionMember(s,y1,offset), x1 != y1.
+
+// indirect calls (second-order functions)
+CallCanTargetFunction(c,f) :- Call(x,c,ac), FunctionUses(x,f, af,0), ac=af.
+CallCanTargetFunction(c,f) :- Call(x,c,ac), FunctionUses(x,f, af,1), ac>=af.
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,af,0), SimpleCast2(y,x), Call(x,c,ac), ac=af.
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,af,0), PointerCast(y,x), Call(x,c,ac), ac=af.
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,af,1), SimpleCast2(y,x), Call(x,c,ac), ac>=af.
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,af,1), PointerCast(y,x), Call(x,c,ac), ac>=af.
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,af,1), FunctionCast2(y,x), Call(x,c,ac), ac>=af.
+// Resolve points don't have the argnum argument. We use argnum=0xffff to mark them.
+CallCanTargetFunction(c,f) :- Call(x,c,0xffff), FunctionUses(x, f, _, _).
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,_,_), SimpleCast2(y,x), Call(x, c, 0xffff).
+CallCanTargetFunction(c,f) :- FunctionUses(y,f,_,_), PointerCast(y,x), Call(x, c, 0xffff).
+
+// FunctionCast2
+FunctionCast2(x,y) :- FunctionUses(x, _, _, _), SimpleCast2(x,y).
+FunctionCast2(x,y) :- FunctionCast2(x,z), SimpleCast2(z,y), x != y.
+FunctionCast2(x,y) :- FunctionUses(x, _, _, _), PointerCast(x,y).
+FunctionCast2(x,y) :- FunctionCast2(x,z), PointerCast(z,y), x != y.
+FunctionCast2(x,y) :- FunctionUses(x, _, _, _), FunctionCast(x,y).
+//FunctionCast2(x,y) :- FunctionCast(z,y), FunctionCast2(x,z), x != y.
+FunctionCast2(x,y) :- FunctionCast2(x,z), FunctionCast(z,y), x != y.
+
+FunctionCast(x,z) :- CallCanTargetFunction(c,f), VertexTypeCall(y,t,c), VertexTypeContext(z,t,f), SimpleCast2(x,y).
+FunctionCast(z,x) :- CallCanTargetFunction(c,f), VertexTypeCall(y,t,c), VertexTypeContext(z,t,f), SimpleCast2(y,x).
+FunctionCast(fy,cy) :- CallCanTargetFunction(c,f), VertexTypeCall(cx,t,c), VertexTypeContext(fx,t,f), PointsTo(cx, cy), PointsTo(fx, fy).
+//FunctionCast(x,z) :- CallCanTargetFunction(c,f), VertexTypeCall(y,t,c), VertexTypeContext(z,t,f), PointerCast(x,y).
+//FunctionCast(z,x) :- CallCanTargetFunction(c,f), VertexTypeCall(y,t,c), VertexTypeContext(z,t,f), PointerCast(y,x).
+
+// We are interested in "reaching casts" only if source contains function definition and dest is call.
+.decl PossibleFunctions(call:number, type:number) brie
+.output PossibleFunctions
+
+PossibleFunctions(x,t) :- Call(x, _, ac), FunctionUses(t, _, af, 0), ac=af,  (SimpleCast2(t, x) ; PointerCast(t, x) ; FunctionCast(t, x) ; FunctionCast2(t, x)).
+PossibleFunctions(x,t) :- Call(x, _, ac), FunctionUses(t, _, af, 1), ac>=af, (SimpleCast2(t, x) ; PointerCast(t, x) ; FunctionCast(t, x) ; FunctionCast2(t, x)).
+PossibleFunctions(x,t) :- Call(x, _, 0xffff), FunctionUses(t, _, _, _), (SimpleCast2(t, x) ; PointerCast(t, x) ; FunctionCast(t, x) ; FunctionCast2(t, x)). // Resolve points don't have the argnum argument. We use argnum=0xffff to mark them.
+
+// external computation is not tested currently
+
+// calls that can trigger external functions are external themselves (including their context):
+External(y) :- Call(y,_,_), External(x), (SimpleCast2(x,y) ; PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)).
+External(y) :- Call(x,c,_), External(x), VertexTypeCall(y,_,c).
+
+// function uses that reach external nodes are external themselves
+External(x) :- FunctionUses(x, _, _, _), External(y), (SimpleCast2(x,y) ; PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)).
+// -> which makes their interface external, too
+External(y) :- FunctionUses(x, f, _, _), External(x), ExternalInterfaces(f, y).
+
+// new PointsTo items (for the interface nodes)
+.decl NewPointsTo(from:number, to:number) brie
+.output NewPointsTo
+
+// External interfaces are potentially incomplete. We can fix that with a simple rule:
+// If an external node can not be dereferenced, but reachable nodes can, then we should carry over that edge.
+External(z)       :- External(x), !PointsTo(x, _), ((SimpleCast2(x,y) ; PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)) ; (SimpleCast2(y,x) ; PointerCast(y,x); FunctionCast(y,x); FunctionCast2(y,x))), PointsTo(y, z).
+// NewPointsTo(x, z) :- External(x), !PointsTo(x, _), ((SimpleCast2(x,y) ; PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)) ; (SimpleCast2(y,x) ; PointerCast(y,x); FunctionCast(y,x); FunctionCast2(y,x))), PointsTo(y, z), !External(y).
+NewPointsTo(x, z) :- External(x), !PointsTo(x, _), ((SimpleCast2(x,y) ; PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)) ; (SimpleCast2(y,x) ; PointerCast(y,x); FunctionCast(y,x); FunctionCast2(y,x))), PointsTo(y, z).
+
+// Plus: "Exernal" propagates along struct and pointsto edges. This one is already covered by the initial marking, but not necessary for the new marking.
+External(y) :- External(x), PointsTo(x, y).
+External(y) :- External(x), StructMember(x, y, _).
+
+// We are also interested in external relations
+.decl ExternalReachability(from:number, to:number) brie
+.output ExternalReachability
+.decl ExternalReachesThis(from:number, to:number) brie
+
+// debug rule replace the original one here to make it compile
+ExternalReachability(x,y) :- External(x), External(y), (SimpleCast2(x,y) ; PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)).
+
+ExternalReachesThis(x, y) :- External(x), (PointerCast(x,y); FunctionCast(x,y); FunctionCast2(x,y)), ! External(y).
+ExternalReachesThis(x, z) :- ExternalReachesThis(x, y), (SimpleCast2(y, z); PointerCast(y, z); FunctionCast(y, z)), ! External(z).
+ExternalReachability(x,z) :- ExternalReachesThis(x, y), (SimpleCast2(y, z); PointerCast(y, z); FunctionCast(y, z)), External(z).
+
+// debug
+//.output SimpleCast2
+//.output CallCanTargetFunction
+
+//.output PointerCast
+//.output FunctionCast
+//.output SimpleCast2
+//.output NotUsedVoid

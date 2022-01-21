@@ -615,6 +615,9 @@ public:
 
 
   Value *VisitUnaryAddrOf(const UnaryOperator *E) {
+    if (E->getSubExpr()->getType()->isFunctionType() && E->getType()->isFunctionPointerType()) {
+      CGF.getTypeGraphBuilder().addAddressOfFunction(CGF.CurGD, E);
+    }
     if (isa<MemberPointerType>(E->getType())) // never sugared
       return CGF.CGM.getMemberPointerConstant(E);
 
@@ -1971,6 +1974,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   Expr *E = CE->getSubExpr();
   QualType DestTy = CE->getType();
   CastKind Kind = CE->getCastKind();
+  CGF.getTypeGraphBuilder().addTypeCast(CGF.CurGD, CE, DestTy);
 
   // These cases are generally not written to ignore the result of
   // evaluating their sub-expressions, so we clear this now.

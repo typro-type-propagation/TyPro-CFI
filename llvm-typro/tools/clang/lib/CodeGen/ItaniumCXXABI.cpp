@@ -544,6 +544,7 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
     return new ItaniumCXXABI(CGM, /*UseARMMethodPtrABI=*/true);
 
   case TargetCXXABI::WebAssembly:
+    llvm::report_fatal_error("WebAssembly");
     return new WebAssemblyCXXABI(CGM);
 
   case TargetCXXABI::GenericItanium:
@@ -2738,6 +2739,7 @@ void ItaniumCXXABI::EmitThreadLocalInitFuncs(
 LValue ItaniumCXXABI::EmitThreadLocalVarDeclLValue(CodeGenFunction &CGF,
                                                    const VarDecl *VD,
                                                    QualType LValType) {
+  llvm::errs() << "[WARNING] Not implemented ItaniumCXXABI::" << __func__ << "\n";
   llvm::Value *Val = CGF.CGM.GetAddrOfGlobalVar(VD);
   llvm::Function *Wrapper = getOrCreateThreadLocalWrapper(VD, Val);
 

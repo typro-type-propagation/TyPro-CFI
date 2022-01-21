@@ -1,0 +1,9 @@
+/.git
+/build
+/llvm-typro/cmake-build-debug
+/llvm-typro/cmake-build-minsizerel
+/Dockerfile
+/.Dockerfile*
+/.dockerignore
+/README.md
+/sysroots

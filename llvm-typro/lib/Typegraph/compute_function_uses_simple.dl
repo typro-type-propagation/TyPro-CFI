@@ -1,0 +1,93 @@
+
+// Data given from the graph. If not stated otherwise, "number" is a vertex ID
+
+// SimpleCast = edge
+// Reaches    = path (of edges)
+
+// "cast" edges
+.decl SimpleCast(from:number, to:number) brie
+.input SimpleCast
+// "points to" edges, (x,y) means x is the pointer
+.decl PointsTo(from:number, to:number) brie
+.input PointsTo
+// "struct member" edges. In struct S {a,b: int}, we have (S,a,0) and (S,b,4)
+.decl StructMember(from:number, to:number, offset:number) brie
+.input StructMember
+// functions of type x are expected in call c, with a arguments being passed
+.decl Call(x:number, c:symbol, a:number) brie
+.input Call
+// function f is referenced with type x. f takes <a> arguments. If v==1, f is vararg, otherwise v==0
+.decl FunctionUses(x:number, f:symbol, a:number, v:number) brie
+.input FunctionUses
+// vertex x is described as (type t, context c)
+.decl VertexTypeContext(x:number, t:symbol, c:symbol) brie
+.input VertexTypeContext
+// external nodes are included in every output
+.decl External(x:number) brie
+.input External
+
+
+// Targets
+.decl Reaches(x:number, y:number) brie
+.decl CallCanTargetFunction(c:symbol, f:symbol) brie
+
+// Full reachability computation can be expensive. But there are only some nodes where we have to know what is reached.
+.decl ReachesComputationNecessary(x:number) brie
+ReachesComputationNecessary(x) :- PointsTo(x,_).
+ReachesComputationNecessary(x) :- StructMember(x,_,_).
+ReachesComputationNecessary(x) :- FunctionUses(x, _, _, _).
+ReachesComputationNecessary(x) :- External(x).
+
+// simple edges (casts)
+Reaches(x,y) :- ReachesComputationNecessary(x), SimpleCast(x,y).
+// Reaches(x,y) :- SimpleCast(x,z), Reaches(z,y), x != y.
+Reaches(x,y) :- Reaches(x,z), SimpleCast(z,y), x != y.
+
+// pointers, v1
+SimpleCast(x2,y2) :- PointsTo(x1,x2), PointsTo(y1,y2), Reaches(x1,y1).
+SimpleCast(y2,x2) :- PointsTo(x1,x2), PointsTo(y1,y2), Reaches(x1,y1).
+SimpleCast(y,z) :- PointsTo(x,y), PointsTo(x,z), y != z.
+// Structs
+SimpleCast(x1,y1) :- StructMember(x2,x1,offset), StructMember(y2,y1,offset), Reaches(x2,y2).
+// Unions
+SimpleCast(x1,y1) :- StructMember(s,x1,offset), StructMember(s,y1,offset), x1 != y1.
+
+
+// indirect calls (second-order functions)
+CallCanTargetFunction(c,f) :- Call(x,c,_), Reaches(y, x), FunctionUses(y, f, _, _).
+CallCanTargetFunction(c,f) :- Call(x,c,_), FunctionUses(x, f, _, _).
+SimpleCast(x,z) :- CallCanTargetFunction(c,f), VertexTypeContext(y,t,c), VertexTypeContext(z,t,f), SimpleCast(x,y).
+SimpleCast(z,x) :- CallCanTargetFunction(c,f), VertexTypeContext(y,t,c), VertexTypeContext(z,t,f), SimpleCast(y,x).
+
+
+// We are interested in "reaching casts" only if source contains function definition and dest is call.
+.decl PossibleFunctions(call:number, type:number) brie
+.output PossibleFunctions
+
+PossibleFunctions(x,t) :- Call(x, _, _), FunctionUses(t, _, _, _), Reaches(t, x).
+
+// calls that can trigger external functions are external themselves (including their context):
+External(y) :- Call(y,_,_), External(x), Reaches(x,y).
+External(y) :- Call(x,c,_), External(x), VertexTypeContext(y,_,c).
+
+// new PointsTo items (for the interface nodes)
+.decl NewPointsTo(from:number, to:number) brie
+.output NewPointsTo
+
+// External interfaces are potentially incomplete. We can fix that with a simple rule:
+// If an external node can not be dereferenced, but reachable nodes can, then we should carry over that edge.
+External(z)       :- External(x), !PointsTo(x, _), (Reaches(x, y) ; Reaches(y, x)), PointsTo(y, z).
+NewPointsTo(x, z) :- External(x), !PointsTo(x, _), (Reaches(x, y) ; Reaches(y, x)), PointsTo(y, z).
+
+// Plus: "Exernal" propagates along struct and pointsto edges. This one is already covered by the initial marking, but not necessary for the new marking.
+External(y) :- External(x), PointsTo(x, y).
+External(y) :- External(x), StructMember(x, y, _).
+
+// We are also interested in external relations
+.decl ExternalReachability(from:number, to:number) brie
+.output ExternalReachability
+
+ExternalReachability(x,y) :- External(x), External(y), Reaches(x,y).
+
+// debug
+// .output Reaches

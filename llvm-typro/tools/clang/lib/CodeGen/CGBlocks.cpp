@@ -1254,6 +1254,7 @@ llvm::Type *CodeGenModule::getGenericBlockLiteralType() {
 
 RValue CodeGenFunction::EmitBlockCallExpr(const CallExpr *E,
                                           ReturnValueSlot ReturnValue) {
+  llvm::errs() << "[UNHANDLED] CodeGenFunction::EmitBlockCallExpr\n";
   const auto *BPT = E->getCallee()->getType()->castAs<BlockPointerType>();
   llvm::Value *BlockPtr = EmitScalarExpr(E->getCallee());
   llvm::Type *GenBlockTy = CGM.getGenericBlockLiteralType();

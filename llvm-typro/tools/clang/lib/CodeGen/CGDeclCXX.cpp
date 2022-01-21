@@ -453,6 +453,8 @@ CodeGenModule::EmitCXXGlobalVarDeclInitFunc(const VarDecl *D,
   if (I != DelayedCXXInitPosition.end() && I->second == ~0U)
     return;
 
+  TypeGraphBuilderCurrentContextScope TGBScope(TGB, D);
+
   llvm::FunctionType *FTy = llvm::FunctionType::get(VoidTy, false);
   SmallString<256> FnName;
   {

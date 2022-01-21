@@ -1,0 +1,9 @@
+#!/bin/sh
+
+export TG_INSTRUMENT_COLLECTCALLTARGETS=1
+export TG_GRAPH_OUTPUT=auto
+
+export TG_ENFORCE_ARGNUM=1
+export TG_ENFORCE_SIMPLE=1
+
+exec "$@"

@@ -23,6 +23,7 @@ set(LLVM_LINK_COMPONENTS
   Support
   Target
   TransformUtils
+  Typegraph
   )
 
 # In a standard Clang+LLVM build, we need to generate intrinsics before
@@ -94,6 +95,10 @@ add_clang_library(clangCodeGen
   SanitizerMetadata.cpp
   SwiftCallingConv.cpp
   TargetInfo.cpp
+  TypegraphBuilder.cpp
+  TypegraphBuilder.h
+  TypegraphFunctionInfos.cpp
+  TypegraphFunctionInfos.h
   VarBypassDetector.cpp
 
   ENABLE_PLUGINS

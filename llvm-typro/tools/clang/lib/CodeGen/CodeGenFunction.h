@@ -1623,6 +1623,7 @@ public:
   CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext=false);
   ~CodeGenFunction();
 
+  TypeGraphBuilder &getTypeGraphBuilder() const { return CGM.TGB; }
   CodeGenTypes &getTypes() const { return CGM.getTypes(); }
   ASTContext &getContext() const { return CGM.getContext(); }
   CGDebugInfo *getDebugInfo() {

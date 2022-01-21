@@ -17,6 +17,7 @@
 #include "CodeGenTypeCache.h"
 #include "CodeGenTypes.h"
 #include "SanitizerMetadata.h"
+#include "TypegraphBuilder.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclOpenMP.h"
@@ -294,6 +295,8 @@ public:
   };
 
   typedef std::vector<Structor> CtorList;
+
+  TypeGraphBuilder TGB;
 
 private:
   ASTContext &Context;

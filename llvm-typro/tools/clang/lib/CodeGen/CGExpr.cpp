@@ -1049,6 +1049,8 @@ Address CodeGenFunction::EmitPointerWithAlignment(const Expr *E,
     if (const auto *ECE = dyn_cast<ExplicitCastExpr>(CE))
       CGM.EmitExplicitCastExprType(ECE, this);
 
+    CGM.TGB.addTypeCast(CurGD, CE, CE->getType());
+
     switch (CE->getCastKind()) {
     // Non-converting casts (but not C's implicit conversion from void*).
     case CK_BitCast:
@@ -2302,6 +2304,7 @@ static LValue EmitThreadPrivateVarDeclLValue(
 
 static Address emitDeclTargetVarDeclLValue(CodeGenFunction &CGF,
                                            const VarDecl *VD, QualType T) {
+  llvm::errs() << "[WARNING] Not implemented " << __func__ << "\n";
   llvm::Optional<OMPDeclareTargetDeclAttr::MapTypeTy> Res =
       OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD);
   // Return an invalid address if variable is MT_To and unified
@@ -2377,6 +2380,7 @@ static LValue EmitGlobalVarDeclLValue(CodeGenFunction &CGF,
   }
 
   llvm::Value *V = CGF.CGM.GetAddrOfGlobalVar(VD);
+  CGF.getTypeGraphBuilder().addGlobalVarUse(CGF.CurGD, VD, E, V, VD->getType());
   llvm::Type *RealVarTy = CGF.getTypes().ConvertTypeForMem(VD->getType());
   V = EmitBitCastOfLValueToProperType(CGF, V, RealVarTy);
   CharUnits Alignment = CGF.getContext().getDeclAlign(VD);
@@ -2423,6 +2427,7 @@ static llvm::Constant *EmitFunctionDeclPointer(CodeGenModule &CGM,
 static LValue EmitFunctionDeclLValue(CodeGenFunction &CGF,
                                      const Expr *E, const FunctionDecl *FD) {
   llvm::Value *V = EmitFunctionDeclPointer(CGF.CGM, FD);
+  CGF.getTypeGraphBuilder().addFunctionRefUse(CGF.CurGD, FD, E, V, FD->getType());
   CharUnits Alignment = CGF.getContext().getDeclAlign(FD);
   return CGF.MakeAddrLValue(V, E->getType(), Alignment,
                             AlignmentSource::Decl);
@@ -4926,6 +4931,7 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
 
   // If we are checking indirect calls and this call is indirect, check that the
   // function pointer is a member of the bit set for the function type.
+  llvm::MDNode *CFIICallTypeMeta = nullptr;
   if (SanOpts.has(SanitizerKind::CFIICall) &&
       (!TargetDecl || !isa<FunctionDecl>(TargetDecl))) {
     SanitizerScope SanScope(this);
@@ -4936,6 +4942,14 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
       MD = CGM.CreateMetadataIdentifierGeneralized(QualType(FnType, 0));
     else
       MD = CGM.CreateMetadataIdentifierForType(QualType(FnType, 0));
+    // Save type for later analysis
+    std::string Params = std::to_string(CGM.getCodeGenOpts().SanitizeCfiICallGeneralizePointers);
+    CFIICallTypeMeta = llvm::MDNode::get(
+        CGM.getLLVMContext(),{
+            CGM.CreateMetadataIdentifierForType(QualType(FnType, 0)),
+            CGM.CreateMetadataIdentifierGeneralized(QualType(FnType, 0)),
+            llvm::MDString::get(CGM.getLLVMContext(), Params)
+        });
 
     llvm::Value *TypeId = llvm::MetadataAsValue::get(getLLVMContext(), MD);
 
@@ -4991,6 +5005,7 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     }
   }
 
+  CGM.TGB.beforeCallArgsEmission(E);
   EmitCallArgs(Args, dyn_cast<FunctionProtoType>(FnType), E->arguments(),
                E->getDirectCallee(), /*ParamsToSkip*/ 0, Order);
 
@@ -5029,6 +5044,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   llvm::CallBase *CallOrInvoke = nullptr;
   RValue Call = EmitCall(FnInfo, Callee, ReturnValue, Args, &CallOrInvoke,
                          E->getExprLoc());
+  CGM.TGB.addCall(CurGD, E, Callee, CallOrInvoke, TargetDecl);
+  // Save type of this call (from LLVM-ICFI)
+  if (CFIICallTypeMeta) {
+    CallOrInvoke->setMetadata(llvm::LLVMContext::MD_icfi_call_type,
+                              CFIICallTypeMeta);
+  }
 
   // Generate function declaration DISuprogram in order to be used
   // in debug info about call sites.

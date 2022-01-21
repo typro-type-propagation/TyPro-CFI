@@ -1,0 +1,48 @@
+// Data given from the graph. If not stated otherwise, "number" is a vertex ID
+
+// "cast" edges
+.decl VoidCast(from:number, to:number) brie
+.decl NonVoidCast(from:number, to:number) brie
+.input VoidCast
+.input NonVoidCast
+// "points to" edges, (x,y) means x is the pointer
+.decl PointsTo(from:number, to:number) brie
+.input PointsTo
+// "struct member" edges. In struct S {a,b: int}, we have (S,a,0) and (S,b,4)
+.decl StructMember(from:number, to:number, offset:number) brie
+.input StructMember
+// "union member" edges. In union S {a: int, b: long}, we have (S,a,"int") and (S,b,"long"). Types are replaced by unique numbers already.
+.decl UnionMember(from:number, to:number, typeid:number) brie
+.input UnionMember
+// functions of type x are expected in call c, with a arguments being passed
+.decl Call(x:number, c:symbol, a:number) brie
+.input Call
+// function f is referenced with type x. f takes <a> arguments. If v==1, f is vararg, otherwise v==0
+.decl FunctionUses(x:number, f:symbol, a:number, v:number) brie
+.input FunctionUses
+// vertex x is described as (type t, context c)
+.decl VertexTypeContext(x:number, t:symbol, c:symbol) brie
+.input VertexTypeContext
+
+.decl SimpleCast(from:number, to:number) brie
+SimpleCast(x, y) :- VoidCast(x, y).
+SimpleCast(x, y) :- NonVoidCast(x, y).
+
+
+.decl Equivalence(x: number, y: number) eqrel
+.output Equivalence
+
+Equivalence(y, z) :- PointsTo(x, y), PointsTo(x, z).
+Equivalence(y, z) :- StructMember(x, y, offset), StructMember(x, z, offset).
+Equivalence(y, z) :- UnionMember(x, y, typeid), UnionMember(x, z, typeid).
+Equivalence(x2, y2) :- SimpleCast(x, y), PointsTo(x, x2), PointsTo(y, y2).
+Equivalence(x, y) :- SimpleCast(x, y), SimpleCast(y, x).
+
+// Transitive versions
+Equivalence(y, z) :- Equivalence(x1, x2), PointsTo(x1, y), PointsTo(x2, z).
+Equivalence(y, z) :- Equivalence(x1, x2), StructMember(x1, y, offset), StructMember(x2, z, offset).
+Equivalence(y, z) :- Equivalence(x1, x2), UnionMember(x1, y, typeid), UnionMember(x2, z, typeid).
+// Equivalence(x3, y3) :- SimpleCast(x1, y1), Equivalence(x1, x2), Equivalence(y1, y2), PointsTo(x2, x3), PointsTo(y2, y3).
+Equivalence(x, y) :- SimpleCast(x, y), SimpleCast(y, x).
+
+

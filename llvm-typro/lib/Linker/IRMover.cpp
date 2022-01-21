@@ -659,6 +659,12 @@ Function *IRLinker::copyFunctionProto(const Function *SF) {
                              SF->getAddressSpace(), SF->getName(), &DstM);
   F->copyAttributesFrom(SF);
   F->setAttributes(mapAttributeTypes(F->getContext(), F->getAttributes()));
+
+  // HACK: rename functions with some more deterministic name
+  if (SF->getName() != F->getName()) {
+    F->setName(SF->getName() + "__from__" + SrcM->getName());
+  }
+
   return F;
 }
 

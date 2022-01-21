@@ -1418,6 +1418,11 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.SymbolPartition = Args.getLastArgValue(OPT_fsymbol_partition_EQ);
 
+  // TODO here
+  if (Args.hasArg(OPT_o)) {
+    Opts.OutputFile = Args.getLastArgNoClaim(OPT_o)->getAsString(Args);
+  }
+
   return Success;
 }
 

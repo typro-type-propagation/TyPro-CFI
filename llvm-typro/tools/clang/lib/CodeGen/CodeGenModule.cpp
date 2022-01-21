@@ -96,7 +96,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const HeaderSearchOptions &HSO,
                              const CodeGenOptions &CGO, llvm::Module &M,
                              DiagnosticsEngine &diags,
                              CoverageSourceInfo *CoverageInfo)
-    : Context(C), LangOpts(C.getLangOpts()), HeaderSearchOpts(HSO),
+    : TGB(C, *this), Context(C), LangOpts(C.getLangOpts()), HeaderSearchOpts(HSO),
       PreprocessorOpts(PPO), CodeGenOpts(CGO), TheModule(M), Diags(diags),
       Target(C.getTargetInfo()), ABI(createCXXABI(*this)),
       VMContext(M.getContext()), Types(*this), VTables(*this),
@@ -273,6 +273,7 @@ void CodeGenModule::addGlobalValReplacement(llvm::GlobalValue *GV, llvm::Constan
 }
 
 void CodeGenModule::applyGlobalValReplacements() {
+  TGB.beforeGlobalReplacements(GlobalValReplacements);
   for (auto &I : GlobalValReplacements) {
     llvm::GlobalValue *GV = I.first;
     llvm::Constant *C = I.second;
@@ -640,6 +641,7 @@ void CodeGenModule::Release() {
     EmitCommandLineMetadata();
 
   EmitTargetMetadata();
+  TGB.Release(TheModule, getCodeGenOpts().OutputFile);
 }
 
 void CodeGenModule::EmitOpenCLMetadata() {
@@ -2442,6 +2444,7 @@ ConstantAddress CodeGenModule::GetWeakRefReference(const ValueDecl *VD) {
 }
 
 void CodeGenModule::EmitGlobal(GlobalDecl GD) {
+  TGB.addGlobalDeclaration(GD);
   const auto *Global = cast<ValueDecl>(GD.getDecl());
 
   // Weak references don't produce any output by themselves.
@@ -3908,6 +3911,7 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
 
   const VarDecl *InitDecl;
   const Expr *InitExpr = D->getAnyInitializer(InitDecl);
+  TGB.addGlobalVarInitializer(*D, InitExpr);
 
   Optional<ConstantEmitter> emitter;
 
@@ -3943,6 +3947,7 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
     Init = EmitNullConstant(D->getType());
   } else {
     initializedGlobalDecl = GlobalDecl(D);
+    TypeGraphBuilderCurrentContextScope TGBScope(TGB, initializedGlobalDecl);
     emitter.emplace(*this);
     Init = emitter->tryEmitForInitializer(*InitDecl);
 

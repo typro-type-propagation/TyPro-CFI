@@ -13,3 +13,5 @@ add_llvm_component_library(LLVMPasses
   DEPENDS
   intrinsics_gen
   )
+
+target_link_libraries(LLVMPasses PRIVATE LLVMTypegraphPasses)

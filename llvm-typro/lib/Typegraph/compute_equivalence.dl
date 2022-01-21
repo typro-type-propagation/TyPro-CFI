@@ -1,0 +1,29 @@
+// Data given from the graph. If not stated otherwise, "number" is a vertex ID
+
+// "cast" edges
+.decl SimpleCast(from: number, to: number)
+.input SimpleCast
+// "points to" edges, (x,y) means x is the pointer
+.decl PointsTo(from: number, to: number)
+.input PointsTo
+// "struct member" edges. In struct S {a,b: int}, we have (S,a,0) and (S,b,4)
+.decl StructMember(from: number, to: number, offset: number)
+.input StructMember
+
+// Output: equivalent nodes
+.decl Equivalence(x: number, y: number) eqrel
+.output Equivalence
+
+
+// Basics
+Equivalence(x, y) :- SimpleCast(x, y), SimpleCast(y, x).
+// Equivalence(x, y1) :- SimpleCast(x, y1), SimpleCast(y2, x), Equivalence(y1, y2).
+// pointers
+Equivalence(y, z) :- PointsTo(x, y), PointsTo(x, z), y != z.
+Equivalence(x2, y2) :- PointsTo(x1, x2), PointsTo(y1, y2), SimpleCast(x1, y1).
+Equivalence(x2, y2) :- PointsTo(x1, x2), PointsTo(y1, y2), Equivalence(x1, y1).
+// Unions
+Equivalence(x1, y1) :- StructMember(s, x1, offset), StructMember(s, y1, offset), x1 != y1.
+// Structs
+Equivalence(x1, y1) :- StructMember(x2, x1, offset), StructMember(y2, y1, offset), Equivalence(x2, y2).
+

@@ -58,6 +58,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
+#include <llvm/Typegraph/TypegraphSettings.h>
 #include <utility>
 
 using namespace llvm;
@@ -1115,6 +1116,11 @@ static void readConfigs(opt::InputArgList &args) {
     } else {
       error(Twine("cannot find version script ") + arg->getValue());
     }
+
+  // MOD FOR TYPEGRAPH
+  typegraph::Settings.lld_is_shared = config->shared;
+  typegraph::Settings.setOutput(config->outputFile.str());
+  // END MOD
 }
 
 // Some Config members do not directly correspond to any particular

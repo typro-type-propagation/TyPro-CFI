@@ -1602,6 +1602,7 @@ RValue CodeGenFunction::emitRotate(const CallExpr *E, bool IsRotateRight) {
 RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
                                         const CallExpr *E,
                                         ReturnValueSlot ReturnValue) {
+  CGM.TGB.addBuiltinExpr(CurGD, BuiltinID, E);
   const FunctionDecl *FD = GD.getDecl()->getAsFunction();
   // See if we can constant fold this builtin.  If so, don't emit it at all.
   Expr::EvalResult Result;
@@ -4239,9 +4240,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
 
   // If this is a predefined lib function (e.g. malloc), emit the call
   // using exactly the normal call path.
-  if (getContext().BuiltinInfo.isPredefinedLibFunction(BuiltinID))
-    return emitLibraryCall(*this, FD, E,
-                      cast<llvm::Constant>(EmitScalarExpr(E->getCallee())));
+  if (getContext().BuiltinInfo.isPredefinedLibFunction(BuiltinID)) {
+    CGM.TGB.setIgnoreFunctionRefUse(true);
+    auto callee = EmitScalarExpr(E->getCallee());
+    CGM.TGB.setIgnoreFunctionRefUse(false);
+    return emitLibraryCall(*this, FD, E, cast<llvm::Constant>(callee));
+  }
 
   // Check that a call to a target specific builtin has the correct target
   // features.

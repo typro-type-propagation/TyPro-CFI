@@ -40,6 +40,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/VersionTuple.h"
 #include "llvm/Support/VirtualFileSystem.h"
+#include "llvm/Typegraph/TypegraphSettings.h"
 #include <cassert>
 #include <cstddef>
 #include <cstring>
@@ -519,7 +520,7 @@ std::string ToolChain::GetProgramPath(const char *Name) const {
 
 std::string ToolChain::GetLinkerPath() const {
   const Arg* A = Args.getLastArg(options::OPT_fuse_ld_EQ);
-  StringRef UseLinker = A ? A->getValue() : CLANG_DEFAULT_LINKER;
+  StringRef UseLinker = A ? A->getValue() : "lld"; // TODO PATCH CLANG_DEFAULT_LINKER;
 
   if (llvm::sys::path::is_absolute(UseLinker)) {
     // If we're passed what looks like an absolute path, don't attempt to
@@ -900,6 +901,29 @@ void ToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
   case ToolChain::CST_Libstdcxx:
     CmdArgs.push_back("-lstdc++");
     break;
+  }
+}
+
+void ToolChain::LinkTypegraphLibrary(ArgStringList &CmdArgs) const {
+  if (typegraph::Settings.instrument_collectcalltargets || (typegraph::Settings.enforce && typegraph::Settings.dynlib_support)) {
+    if (Args.hasArgNoClaim(options::OPT__sysroot_EQ)) {
+      auto *x = new std::string(std::string("-L") + Args.getLastArgNoClaim(options::OPT__sysroot_EQ)->getValue());
+      x->append("/usr/typro-lib");
+      CmdArgs.insert(CmdArgs.begin(), x->c_str());
+      x = new std::string(std::string("-rpath=") + Args.getLastArgNoClaim(options::OPT__sysroot_EQ)->getValue());
+      x->append("/usr/typro-lib");
+      CmdArgs.insert(CmdArgs.begin(), x->c_str());
+      CmdArgs.push_back("-rpath=/usr/typro-lib");
+    } else {
+      CmdArgs.insert(CmdArgs.begin(), "-L/usr/typro-lib");
+      CmdArgs.push_back("-rpath=/usr/typro-lib");
+    }
+  }
+  if (typegraph::Settings.instrument_collectcalltargets) {
+    CmdArgs.push_back("-ltypro-instrumentation");
+  }
+  if (typegraph::Settings.enforce && typegraph::Settings.dynlib_support) {
+    CmdArgs.push_back("-ltypro-rt");
   }
 }
 

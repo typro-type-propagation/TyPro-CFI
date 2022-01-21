@@ -166,6 +166,9 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
 /// EmitVarDecl - This method handles emission of any variable declaration
 /// inside a function, including static vars etc.
 void CodeGenFunction::EmitVarDecl(const VarDecl &D) {
+  if (CurGD.getDecl()) {
+    CGM.TGB.addLocalVarDef(CurGD, &D);
+  }
   if (D.hasExternalStorage())
     // Don't emit it now, allow it to be emitted lazily on its first use.
     return;
@@ -317,6 +320,10 @@ CodeGenFunction::AddInitializerToStaticVarDecl(const VarDecl &D,
                                                llvm::GlobalVariable *GV) {
   ConstantEmitter emitter(*this);
   llvm::Constant *Init = emitter.tryEmitForInitializer(D);
+
+  if (D.getInit()) {
+    CGM.TGB.addGlobalVarInitializer(D, D.getInit());
+  }
 
   // If constant emission failed, then this should be a C++ static
   // initializer.
@@ -1743,6 +1750,7 @@ void CodeGenFunction::emitZeroOrPatternForAutoVarInit(QualType type,
 }
 
 void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
+  TypeGraphBuilderCurrentContextScope TGBScope(CGM.TGB, CurGD);
   assert(emission.Variable && "emission was not valid!");
 
   // If this was emitted as a global constant, we're done.

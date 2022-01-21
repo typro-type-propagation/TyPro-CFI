@@ -52,6 +52,10 @@ function(llvm_update_compile_flags name)
     list(APPEND LLVM_COMPILE_FLAGS "/GR")
   endif()
 
+  if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
+    list(APPEND LLVM_COMPILE_FLAGS "-fopenmp")
+  endif()
+
   # Assume that;
   #   - LLVM_COMPILE_FLAGS is list.
   #   - PROPERTY COMPILE_FLAGS is string.
@@ -845,6 +849,8 @@ macro(add_llvm_executable name)
   endif()
 
   llvm_codesign(${name} ENTITLEMENTS ${ARG_ENTITLEMENTS} BUNDLE_PATH ${ARG_BUNDLE_PATH})
+
+  target_link_options(${name} PRIVATE "-fopenmp")
 endmacro(add_llvm_executable name)
 
 # add_llvm_pass_plugin(name [NO_MODULE] ...)

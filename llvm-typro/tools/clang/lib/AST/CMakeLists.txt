@@ -111,6 +111,8 @@ add_clang_library(clangAST
   VTableBuilder.cpp
   VTTBuilder.cpp
 
+  TypegraphBuilderLinkingSupport.cpp
+
   LINK_LIBS
   clangBasic
   clangLex

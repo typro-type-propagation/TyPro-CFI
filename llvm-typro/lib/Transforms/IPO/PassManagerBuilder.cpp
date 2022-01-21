@@ -12,6 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "../../TypegraphPasses/CleanupPass.h"
+#include "../../TypegraphPasses/TypegraphPass.h"
 #include "llvm-c/Transforms/PassManagerBuilder.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -25,6 +27,7 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/CommandLine.h"
@@ -47,6 +50,7 @@
 #include "llvm/Transforms/Vectorize.h"
 #include "llvm/Transforms/Vectorize/LoopVectorize.h"
 #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
+#include <llvm/Typegraph/TypegraphSettings.h>
 
 using namespace llvm;
 
@@ -918,6 +922,8 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
   addInstructionCombiningPass(PM);
   addExtensionsToPM(EP_Peephole, PM);
 
+  // PM.add(createCallStatisticsPass());
+
   // Inline small functions
   bool RunInliner = Inliner;
   if (RunInliner) {
@@ -1062,13 +1068,24 @@ void PassManagerBuilder::populateThinLTOPassManager(
 }
 
 void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
+  llvm::errs() << "[CONFIG] OptLevel = " << OptLevel << "  SizeLevel = " << SizeLevel << "\n";
   if (LibraryInfo)
     PM.add(new TargetLibraryInfoWrapperPass(*LibraryInfo));
 
   if (VerifyInput)
     PM.add(createVerifierPass());
 
+  // PATCH insert patch here
+  PM.add(createGlobalDCEPass());
+  PM.add(createVerifierPass());
+  if (typegraph::Settings.icfi_output || typegraph::Settings.ifcc_output) {
+    PM.add(new RelatedWorkLegacyPass());
+  }
+  PM.add(new TypeGraphLegacyPass());
+  PM.add(createVerifierPass());
+
   addExtensionsToPM(EP_FullLinkTimeOptimizationEarly, PM);
+
 
   if (OptLevel != 0)
     addLTOOptimizationPasses(PM);
@@ -1093,8 +1110,11 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
 
   addExtensionsToPM(EP_FullLinkTimeOptimizationLast, PM);
 
-  if (VerifyOutput)
+  PM.add(new CScanCleanupLegacyPass());
+
+  if (VerifyOutput) {
     PM.add(createVerifierPass());
+  }
 }
 
 inline PassManagerBuilder *unwrap(LLVMPassManagerBuilderRef P) {

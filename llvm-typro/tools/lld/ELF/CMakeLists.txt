@@ -59,6 +59,7 @@ add_lld_library(lldELF
   Option
   Passes
   Support
+  Typegraph
 
   LINK_LIBS
   lldCommon

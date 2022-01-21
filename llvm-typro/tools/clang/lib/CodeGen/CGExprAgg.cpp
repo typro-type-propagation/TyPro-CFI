@@ -678,6 +678,8 @@ static Expr *findPeephole(Expr *op, CastKind kind) {
 }
 
 void AggExprEmitter::VisitCastExpr(CastExpr *E) {
+  CGF.getTypeGraphBuilder().addTypeCast(CGF.CurGD, E, E->getType());
+
   if (const auto *ECE = dyn_cast<ExplicitCastExpr>(E))
     CGF.CGM.EmitExplicitCastExprType(ECE, &CGF);
   switch (E->getCastKind()) {

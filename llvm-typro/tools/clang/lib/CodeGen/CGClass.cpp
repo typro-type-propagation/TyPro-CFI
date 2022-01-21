@@ -2071,6 +2071,7 @@ void CodeGenFunction::EmitCXXConstructorCall(const CXXConstructorDecl *D,
   EmitCallArgs(Args, FPT, E->arguments(), E->getConstructor(),
                /*ParamsToSkip*/ 0, Order);
 
+  CGM.TGB.addCXXConstructorCall(CurGD, E, D);
   EmitCXXConstructorCall(D, Type, ForVirtualBase, Delegating, This, Args,
                          ThisAVS.mayOverlap(), E->getExprLoc(),
                          ThisAVS.isSanitizerChecked());

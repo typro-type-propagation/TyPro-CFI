@@ -82,6 +82,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorCall(
     const CallExpr *CE, CallArgList *RtlArgs) {
   const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();
   CallArgList Args;
+  CGM.TGB.beforeCallArgsEmission(CE);
   MemberCallInfo CallInfo = commonEmitCXXMemberOrOperatorCall(
       *this, MD, This, ImplicitParam, ImplicitParamTy, CE, Args, RtlArgs);
   auto &FnInfo = CGM.getTypes().arrangeCXXMethodCall(
@@ -109,6 +110,7 @@ RValue CodeGenFunction::EmitCXXDestructorCall(
   }
 
   CallArgList Args;
+  CGM.TGB.beforeCallArgsEmission(CE);
   commonEmitCXXMemberOrOperatorCall(*this, DtorDecl, This, ImplicitParam,
                                     ImplicitParamTy, CE, Args, nullptr);
   return EmitCall(CGM.getTypes().arrangeCXXStructorDeclaration(Dtor), Callee,
@@ -282,10 +284,12 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
     assert(!RtlArgs);
     assert(ReturnValue.isNull() && "Constructor shouldn't have return value");
     CallArgList Args;
+    CGM.TGB.beforeCallArgsEmission(CE);
     commonEmitCXXMemberOrOperatorCall(
         *this, Ctor, This.getPointer(*this), /*ImplicitParam=*/nullptr,
         /*ImplicitParamTy=*/QualType(), CE, Args, nullptr);
 
+    CGM.TGB.addCXXConstructorCall(CurGD, CE, Ctor, Base);
     EmitCXXConstructorCall(Ctor, Ctor_Complete, /*ForVirtualBase=*/false,
                            /*Delegating=*/false, This.getAddress(*this), Args,
                            AggValueSlot::DoesNotOverlap, CE->getExprLoc(),
@@ -355,6 +359,8 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
   // We also don't emit a virtual call if the base expression has a record type
   // because then we know what the type is.
   bool UseVirtualCall = CanUseVirtualCall && !DevirtualizedMethod;
+
+  CGM.TGB.addCXXMemberCall(CurGD, CE, MD, UseVirtualCall, DevirtualizedMethod, Base);
 
   if (const CXXDestructorDecl *Dtor = dyn_cast<CXXDestructorDecl>(CalleeDecl)) {
     assert(CE->arg_begin() == CE->arg_end() &&

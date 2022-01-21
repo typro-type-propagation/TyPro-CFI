@@ -450,6 +450,8 @@ ComplexPairTy ComplexExprEmitter::EmitScalarToComplexCast(llvm::Value *Val,
 
 ComplexPairTy ComplexExprEmitter::EmitCast(CastKind CK, Expr *Op,
                                            QualType DestTy) {
+  CGF.getTypeGraphBuilder().addTypeCast2(CGF.CurGD, Op, DestTy);
+
   switch (CK) {
   case CK_Dependent: llvm_unreachable("dependent cast kind in IR gen!");
 

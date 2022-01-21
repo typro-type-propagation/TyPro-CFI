@@ -712,6 +712,11 @@ bool ConstStructBuilder::Build(InitListExpr *ILE, bool AllowOverwrite) {
       }
     }
 
+    if (Init && Init->getType() != Field->getType()) {
+      Emitter.CGM.TGB.addImplicitTypeCast(
+          Emitter.CGF ? Emitter.CGF->CurGD : Emitter.CGM.TGB.CurrentContext,
+          Init, Field->getType());
+    }
     llvm::Constant *EltInit =
         Init ? Emitter.tryEmitPrivateForMemory(Init, Field->getType())
              : Emitter.emitNullForMemory(Field->getType());

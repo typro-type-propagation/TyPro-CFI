@@ -56,6 +56,7 @@
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
+#include "../CodeGen/TypegraphBuilder.h"
 #include <cstring>
 #include <functional>
 
@@ -9111,6 +9112,13 @@ bool RecordExprEvaluator::VisitInitListExpr(const InitListExpr *E) {
     // the initializer list.
     ImplicitValueInitExpr VIE(HaveInit ? Info.Ctx.IntTy : Field->getType());
     const Expr *Init = HaveInit ? E->getInit(ElementNo++) : &VIE;
+
+    if (Init && Init->getType() != Field->getType()) {
+      assert(TypeGraphBuilder::CurrentInstance);
+      TypeGraphBuilder::CurrentInstance->addImplicitTypeCast(
+          TypeGraphBuilder::CurrentInstance->CurrentContext, Init,
+          Field->getType());
+    }
 
     // Temporarily override This, in case there's a CXXDefaultInitExpr in here.
     ThisOverrideRAII ThisOverride(*Info.CurrentCall, &This,

@@ -74,6 +74,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <llvm/Support/JSON.h>
 #include <memory>
 #include <set>
 #include <string>
@@ -503,6 +504,9 @@ public:
                        const ModuleSummaryIndex *ImportSummary);
 
   bool lower();
+
+  json::Value reportStatisticsJson = json::Value(json::Object());
+  void reportStatistics(ArrayRef<GlobalTypeMember *> Functions);
 
   // Lower the module using the action and summary passed as command line
   // arguments. For testing purposes only.
@@ -1237,6 +1241,7 @@ Type *LowerTypeTestsModule::getJumpTableEntryType() {
 /// and lower the llvm.type.test calls, architecture dependently.
 void LowerTypeTestsModule::buildBitSetsFromFunctions(
     ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalTypeMember *> Functions) {
+  reportStatistics(Functions);
   if (Arch == Triple::x86 || Arch == Triple::x86_64 || Arch == Triple::arm ||
       Arch == Triple::thumb || Arch == Triple::aarch64)
     buildBitSetsFromFunctionsNative(TypeIds, Functions);
@@ -1616,7 +1621,6 @@ void LowerTypeTestsModule::buildBitSetsFromDisjointSet(
     for (GlobalTypeMember *T : JT->targets())
       TMSet.insert(GlobalIndices[T]);
   }
-
   // Order the sets of indices by size. The GlobalLayoutBuilder works best
   // when given small index sets first.
   llvm::stable_sort(TypeMembers, [](const std::set<uint64_t> &O1,
@@ -1644,10 +1648,10 @@ void LowerTypeTestsModule::buildBitSetsFromDisjointSet(
       *OGTMI++ = Globals[Offset];
     }
   }
-
   // Build the bitsets from this disjoint set.
-  if (IsGlobalSet)
+  if (IsGlobalSet) {
     buildBitSetsFromGlobalVariables(TypeIds, OrderedGTMs);
+  }
   else
     buildBitSetsFromFunctions(TypeIds, OrderedGTMs);
 }
@@ -1757,7 +1761,6 @@ bool LowerTypeTestsModule::lower() {
   if ((ExportSummary && ExportSummary->partiallySplitLTOUnits()) ||
       (ImportSummary && ImportSummary->partiallySplitLTOUnits()))
     return false;
-
   Function *TypeTestFunc =
       M.getFunction(Intrinsic::getName(Intrinsic::type_test));
   Function *ICallBranchFunnelFunc =
@@ -1766,7 +1769,6 @@ bool LowerTypeTestsModule::lower() {
       (!ICallBranchFunnelFunc || ICallBranchFunnelFunc->use_empty()) &&
       !ExportSummary && !ImportSummary)
     return false;
-
   if (ImportSummary) {
     if (TypeTestFunc) {
       for (auto UI = TypeTestFunc->use_begin(), UE = TypeTestFunc->use_end();
@@ -1779,7 +1781,6 @@ bool LowerTypeTestsModule::lower() {
     if (ICallBranchFunnelFunc && !ICallBranchFunnelFunc->use_empty())
       report_fatal_error(
           "unexpected call to llvm.icall.branch.funnel during import phase");
-
     SmallVector<Function *, 8> Defs;
     SmallVector<Function *, 8> Decls;
     for (auto &F : M) {
@@ -1806,6 +1807,7 @@ bool LowerTypeTestsModule::lower() {
 
     return true;
   }
+
 
   // Equivalence class set containing type identifiers and the globals that
   // reference them. This is used to partition the set of type identifiers in
@@ -1938,7 +1940,6 @@ bool LowerTypeTestsModule::lower() {
       }
     }
   }
-
   DenseMap<GlobalObject *, GlobalTypeMember *> GlobalTypeMembers;
   for (GlobalObject &GO : M.global_objects()) {
     if (isa<GlobalVariable>(GO) && GO.isDeclarationForLinker())
@@ -1959,7 +1960,7 @@ bool LowerTypeTestsModule::lower() {
       // not that the address takers are live. This can be updated to check
       // their liveness and emit fewer jumptable entries once monolithic LTO
       // builds also emit summaries.
-      } else if (!F->hasAddressTaken()) {
+      } else if (!(F->hasAddressTaken() || (!F->isIntrinsic() && F->hasMetadata("address_taken")))) {
         if (!CrossDsoCfi || !IsJumpTableCanonical || F->hasLocalLinkage())
           continue;
       }
@@ -1995,6 +1996,7 @@ bool LowerTypeTestsModule::lower() {
 
     return Ins.first->second;
   };
+
 
   if (TypeTestFunc) {
     for (const Use &U : TypeTestFunc->uses()) {
@@ -2068,7 +2070,7 @@ bool LowerTypeTestsModule::lower() {
 
   if (GlobalClasses.empty())
     return false;
-
+  
   // Build a list of disjoint sets ordered by their maximum global index for
   // determinism.
   std::vector<std::pair<GlobalClassesTy::iterator, unsigned>> Sets;
@@ -2192,6 +2194,58 @@ bool LowerTypeTestsModule::lower() {
   }
 
   return true;
+}
+
+void LowerTypeTestsModule::reportStatistics(ArrayRef<GlobalTypeMember *> Functions) {
+  if (!getenv("TG_ICFI_OUTPUT"))
+    return;
+  // Load graph for reference (call names, function names, etc)
+  // typegraph::TypeGraph Graph;
+  // typegraph::ParseTypegraphFromMetadata(Graph, M);
+
+  auto &J = *reportStatisticsJson.getAsObject();
+  if (J.find("icfi_targets") == J.end())
+    J["icfi_targets"] = llvm::json::Object();
+  if (J.find("icfi_targets_generalized") == J.end())
+    J["icfi_targets_generalized"] = llvm::json::Object();
+  auto *CallMap = J.getObject("icfi_targets");
+  auto *CallMapGeneralized = J.getObject("icfi_targets_generalized");
+
+  auto *NodeList = M.getNamedMetadata("cfi-icall-data");
+  assert(NodeList);
+  bool Once = false;
+  for (auto *Node: NodeList->operands()) {
+    const auto CallName = cast<MDString>(Node->getOperand(0))->getString();
+    auto *TypeId = Node->getOperand(1).get();
+    auto *TypeIdGeneralized = Node->getOperand(2).get();
+    J["icfi_generalize_pointers"] = cast<MDString>(Node->getOperand(3))->getString()[0] == '1';
+
+    if (CallMap->find(CallName) == CallMap->end())
+      (*CallMap)[CallName] = llvm::json::Array();
+    auto *Arr = CallMap->getArray(CallName);
+    if (CallMapGeneralized->find(CallName) == CallMapGeneralized->end())
+      (*CallMapGeneralized)[CallName] = llvm::json::Array();
+    auto *ArrGeneralized = CallMapGeneralized->getArray(CallName);
+
+    for (auto &GTM : Functions) {
+      if (!Once) {
+        Once = true;
+      }
+      for (MDNode *Type : GTM->types()) {
+        if (Type->getOperand(1) == TypeId) {
+          Arr->push_back(GTM->getGlobal()->getName());
+        }
+        if (Type->getOperand(1) == TypeIdGeneralized) {
+          ArrGeneralized->push_back(GTM->getGlobal()->getName());
+        }
+      }
+    }
+  }
+
+  std::string Filename = getenv("TG_ICFI_OUTPUT");
+  std::error_code EC;
+  llvm::raw_fd_ostream File(Filename, EC);
+  File << reportStatisticsJson << "\n";
 }
 
 PreservedAnalyses LowerTypeTestsPass::run(Module &M,
