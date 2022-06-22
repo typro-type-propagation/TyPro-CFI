@@ -79,10 +79,10 @@ public:
     return ResolvePoints.back();
   }
 
-  DFunction *getFunction(FunctionRef Ref, long ID=NOID) {
+  DFunction *getFunction(FunctionRef Ref, long ID = NOID) {
     auto It = Functions.find(Ref);
     if (It == Functions.end()) {
-      DFunction* F = (Functions[Ref] = std::make_unique<DFunction>(ID, Ref)).get();
+      DFunction *F = (Functions[Ref] = std::make_unique<DFunction>(ID, Ref)).get();
       F->Leaking = false;
       return F;
     }
@@ -111,6 +111,7 @@ public:
 };
 
 #ifndef WITHOUT_LLVM
+
 class LLVMDispatcherBuilder : public TGDispatcherBuilder<llvm::Function *, llvm::User *, llvm::CallBase *> {
   std::shared_ptr<StringContainer> Symbols;
   llvm::LLVMContext &Context;
@@ -136,14 +137,19 @@ public:
   }
 
   void initialize();
+
   void assignOptimalIDs();
+
   void assignMissingIDs();
+
   void debugIDAssignment();
+
   void replaceFunctionsWithIDs();
+
   void generateCodeForResolvePoint(DResolvePoint &RP);
 
   inline void generateCodeForAll() {
-    for (auto &RP : ResolvePoints) {
+    for (auto &RP: ResolvePoints) {
       generateCodeForResolvePoint(RP);
     }
   }
@@ -151,6 +157,8 @@ public:
   void generateCodeForDynamicSymbols();
 
   void printFunctionIDs();
+
+  void writeFunctionIDsToFile();
 
   inline std::map<llvm::Function *, std::unique_ptr<DFunction>> &getFunctions() {
     return Functions;
@@ -169,21 +177,30 @@ public:
 
 private:
   bool typesafeReplaceAllUsesWith(llvm::User *OldValue, llvm::Constant *NewValue);
+
   bool typesafeReplaceUseWith(llvm::User *User, llvm::Value *Old, llvm::Constant *New);
 
-  std::vector<llvm::User *> getFunctionUsages(DFunction *F);
-  bool canReplaceAllFunctionUsages(DFunction *F);
+  /**
+   * @param Result pairs (User, OldValue)
+   * @param F
+   */
+  void collectFunctionUsages(std::vector<std::pair<llvm::User *, llvm::Value *>> &Result, llvm::Value *F);
+
+  bool canReplaceAllFunctionUsages(llvm::Value *V);
 
   void collectCluster(std::set<DFunction *> &Cluster, std::set<DResolvePoint *> &RPs);
+
   long assignClusterIDs(std::set<DFunction *> &Cluster, std::set<DResolvePoint *> &RPs, long MinNumber);
 
   // generate code that translates a function ID back to a pointer
   llvm::Value *generateBackTranslation(DResolvePoint &RP, llvm::Value *OldValue, llvm::Instruction *SplitBefore);
+
   // generate code that errors
   void generateErrorCase(llvm::IRBuilder<> &Builder, DResolvePoint &RP, llvm::Value *FunctionID);
 
   void newTrampoline(llvm::GlobalVariable *GV);
 };
+
 #endif
 
 } // namespace typegraph

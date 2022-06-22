@@ -57,7 +57,14 @@ fi
 
 cd $SCRIPT_DIR/httpd/httpd-${httpd_v}-$MODE
 
-./configure --prefix=$INSTALL_DIR --enable-static --disable-shared --with-pcre=$INSTALL_DIR/bin/pcre-config --with-included-apr --without-ssl --enable-rewrite --enable-cgi --enable-mods-static=few
+case "$MODE" in
+    "arm64_ref" | "arm64_enforcestatic" )
+        CONFIGURE_FLAGS="$CONFIGURE_FLAGS ac_cv_file__dev_zero=yes ac_cv_func_setpgrp_void=yes apr_cv_tcp_nodelay_with_cork=yes ap_cv_void_ptr_lt_long=8"
+        CFLAGS="$CFLAGS -DAPR_IOVEC_DEFINED"
+        ;;
+esac
+
+./configure --prefix=$INSTALL_DIR --enable-static --disable-shared --with-pcre=$INSTALL_DIR/bin/pcre-config --with-included-apr --without-ssl --enable-rewrite --enable-cgi --enable-mods-static=few $CONFIGURE_FLAGS
 
 rm -rf graph.*
 nice -5 make -j$(nproc) 2>&1 | tee $SCRIPT_DIR/logs/httpd-$MODE.log

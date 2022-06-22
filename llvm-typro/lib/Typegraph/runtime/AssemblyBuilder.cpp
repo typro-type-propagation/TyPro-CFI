@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <vector>
+#include <cstdint>
+#include <limits>
 
 #define FINAL_CHECK true
 

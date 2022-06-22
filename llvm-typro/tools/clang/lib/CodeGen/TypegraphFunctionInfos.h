@@ -8,13 +8,15 @@ namespace clang {
 
 enum LibraryFunctionHandling {
   DEFAULT = 0,
-  PER_CALL_CONTEXT,  // each call gets its own function context
-  IGNORE,            // do not consider call at all
-  RESOLVE,           // Arguments need FunctionID => FunctionPtr conversion
-  RESOLVE_DEEP,      // Arguments need FunctionID => FunctionPtr conversion in struct/union parameters
-  RESOLVE_WITH_DATA, // Arguments need FunctionID => FunctionPtr conversion, and further arguments transfer data to the indirect call
-  DLSYM,             // Resolve dynamic symbols
-  MEMCPY,            // memcpy-style functions: arg1--*-> [---->] <--*-- arg0
+  PER_CALL_CONTEXT,    // each call gets its own function context
+  IGNORE,              // do not consider call at all
+  IGNORE_BUT_FILE,     // only consider FILE* arguments
+  RESOLVE,             // Arguments need FunctionID => FunctionPtr conversion
+  RESOLVE_DEEP,        // Arguments need FunctionID => FunctionPtr conversion in struct/union parameters
+  RESOLVE_WITH_DATA,   // Arguments need FunctionID => FunctionPtr conversion, and further arguments transfer data to the indirect call
+  RESOLVE_DEEP_ALWAYS, // same as RESOLVE_DEEP, but even when libc data is available
+  DLSYM,               // Resolve dynamic symbols
+  MEMCPY,              // memcpy-style functions: arg1--*-> [---->] <--*-- arg0
 };
 
 LibraryFunctionHandling GetHandlingForFunction(const char *Name);

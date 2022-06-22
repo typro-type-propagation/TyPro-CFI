@@ -85,10 +85,13 @@ void emptyTargetSetHandler(void);
 } // namespace rt
 } // namespace typegraph
 
+#define EXTERN extern __attribute__((__visibility__("default")))
+
 extern "C" {
-[[maybe_unused]] void __tg_register_graph(const char *GraphData, void **References, long ModuleID);
-void __tg_dynamic_error(size_t Index, long ID);
-long __tg_dlsym_to_id(typegraph::rt::DynamicSymbolInfo *DynamicSymbolCall, void *Symbol);
+[[maybe_unused]] EXTERN void __tg_register_graph(const char *GraphData, void **References, long ModuleID);
+EXTERN void __tg_dynamic_error(size_t Index, long ID);
+EXTERN long __tg_dlsym_to_id(typegraph::rt::DynamicSymbolInfo *DynamicSymbolCall, void *Symbol);
+EXTERN void *__tg_resolve_symbol(const char *Name, long ID);
 void *generateDispatcher(int Index, uintptr_t CurrentID);
 }
 

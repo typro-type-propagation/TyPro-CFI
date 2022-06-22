@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <limits>
 
 /**
  * ID comes in r16, r17 is scratch register.

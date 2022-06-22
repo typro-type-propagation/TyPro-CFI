@@ -6,10 +6,10 @@ import subprocess
 import sys
 import unittest
 
-from typing import Union, List
+from typing import Union, List, Tuple
 
 from typegraph_utils import compile_to_graph, Typegraph, SourceCode, compile_link_run, run_typegraph_tool, CallTargets, CallPrecision, SourceCodeFile, \
-    InterfaceDesc, llvm_typegraph_tool, compile_link, TMPDIR, ARCH, RUN_PREFIX
+    InterfaceDesc, llvm_typegraph_tool, compile_link, TMPDIR, ARCH, RUN_PREFIX, MUSL_CLANG
 
 SAMPLE_PREFIX_HEADER = r'''
 #include <stdio.h>
@@ -191,6 +191,9 @@ void xlibrary_call2(functype2 f) { assert_function_is_id(f); if (f) printf("xlib
 void xlibrary_delegate_call1(functype f) { assert_function_is_id(f); library_call1(f); }
 void xlibrary_delegate_call2(functype2 f) { assert_function_is_id(f); library_call2(f); }
 '''
+
+
+os.environ['TG_CONSIDER_RETURN_TYPE'] = '0'
 
 
 class TypeGraphTestCases(unittest.TestCase):
@@ -2014,6 +2017,23 @@ class CXXTestCases(OneCallTestCase):
         '''
         self._run_test(SourceCode.from_cxx(SAMPLE_PREFIX + SAMPLE), ['f1'])
 
+    @unittest.skip('C++ is future work')
+    def test_virtual_function(self):
+        SAMPLE = '''
+        struct A {
+            noinline virtual functype2 transfer(functype f) { }
+        };
+        struct B : public A {
+            noinline functype2 transfer(functype f) override { return (functype2) f; }
+        };
+        noinline void target() {
+            A *a = new B();
+            auto x = a->transfer(f1);
+            x(1);
+        } 
+        '''
+        self._run_test(SourceCode.from_cxx(SAMPLE_PREFIX + SAMPLE), ['f1'])
+
     def test_templates(self):
         SAMPLE = '''
         template <typename T, typename U>
@@ -2440,6 +2460,22 @@ class InterfaceDescriptionTestCases(OneCallTestCaseBase):
         self.assertNotIn('test8', graph.contextDefiningUnits)  # static
         # all must be from one unit:
         self.assertEqual(len(set(graph.contextDefiningUnits.values())), 1)
+
+    def test_weak_alias(self):
+        SAMPLE = '''
+        #define weak_alias(old, new) \
+        extern __typeof(old) new __attribute__((__weak__, __alias__(#old)))
+        
+        long __library_function(void *p) { return (long) p; }
+        weak_alias(__library_function, library_function);
+        
+        void target() {
+            long l = library_function(g1);
+            ((functype) l)(1);
+        }
+        '''
+        code = SourceCode.from_string(SAMPLE_PREFIX + SAMPLE)
+        self._run_test(code, ['g1'])
 
 
 class LayeringTestCases(OneCallTestCaseBase):
@@ -4052,7 +4088,436 @@ class DynamicLinkingTests(unittest.TestCase):
             print(c, r.returncode, r.stdout)
             self.assertEqual(ARCH['signal'], r.returncode)
 
+    def test_resolve_points(self):
+        SAMPLE = LIBRARY_HEADER + SAMPLE_PREFIX_DEFS + '''
+        #include <signal.h>
+        #include <unistd.h>
+        void noinline run(char c) {
+            functype f = library_get1(c);
+            signal(10, f);
+            kill(getpid(), 10);
+        }
+        ''' + LIBRARY_MAIN
+        code = SourceCode.from_string(SAMPLE).add_library(self.__get_library())
+        binary, outputs = compile_link_run(code, [['1'], ['2']], enforce=True)
+        self.assertEqual(b'lib11 10\n', outputs[0])
+        self.assertEqual(b'lib12 10\n', outputs[1])
+
     pass
+
+
+class MuslLibcTestCases(unittest.TestCase):
+    def _make_musl(self, code: Union[SourceCode,str]) -> SourceCode:
+        if isinstance(code, str):
+            code = SourceCode.from_string(code)
+        code.add_library_support()
+        code.compiler_binary = MUSL_CLANG
+        for f in code.files.values():
+            f.compiler_binary = MUSL_CLANG
+        return code
+
+    def _compile_link_run(self, code: Union[SourceCode,str], arguments: List[List[str]], enforce: bool = False, instrument: bool = False) -> Tuple[str, List[bytes]]:
+        code = self._make_musl(code)
+        return compile_link_run(code, arguments, enforce=enforce, instrument_collect_calltargets=instrument)
+
+    def _compare_enforced_unenforced(self, program: Union[SourceCode,str], arguments: List[List[str]], compare_stderr=True) -> Tuple[str, str]:
+        # compile stuff with GNU
+        program.binary_fname = program.binary_fname.replace('.enf.bin', '.bin').replace('.bin', '.ref.bin')
+        binary_ref = compile_link(program, enforce=False)
+        atexit.register(lambda: os.remove(binary_ref) if os.path.exists(binary_ref) else None)
+        # compile stuff with MUSL / enforced
+        program = self._make_musl(program)
+        program.binary_fname = program.binary_fname.replace('.ref.bin', '.enf.bin')
+        binary_enf = compile_link(program, enforce=True)
+        atexit.register(lambda: os.remove(binary_enf) if os.path.exists(binary_enf) else None)
+        # run and compare
+        for args in arguments:
+            result_ref = subprocess.run(RUN_PREFIX + [binary_ref] + args, timeout=7, stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=b'')
+            result_enf = subprocess.run(RUN_PREFIX + [binary_enf] + args, timeout=7, stdout=subprocess.PIPE, stderr=subprocess.PIPE, input=b'')
+            print('ref', result_ref)
+            print('enf', result_enf)
+            if result_ref.returncode != result_enf.returncode:
+                print(f'Different return codes (expected {result_ref.returncode}, was {result_enf.returncode}) for inputs {args}')
+                sys.stdout.flush()
+                sys.stdout.write('=== stdout ===\n')
+                sys.stdout.write(result_enf.stdout.decode(errors='ignore'))
+                sys.stdout.write('\n=== stderr ===\n')
+                sys.stdout.write(result_enf.stderr.decode(errors='ignore'))
+                self.assertEqual(result_ref.returncode, result_enf.returncode)
+            if result_ref.stdout != result_enf.stdout:
+                print(f'Different output for inputs {args}')
+                sys.stdout.flush()
+                sys.stdout.write('=== stdout (expected) ===\n')
+                sys.stdout.write(result_ref.stdout.decode(errors='ignore'))
+                sys.stdout.write('=== stdout (actual) ===\n')
+                sys.stdout.write(result_enf.stdout.decode(errors='ignore'))
+                sys.stdout.write('=== stderr (actual) ===\n')
+                sys.stdout.write(result_enf.stderr.decode(errors='ignore'))
+                self.assertEqual(result_ref.stdout, result_enf.stdout)
+            if compare_stderr and result_ref.stderr != result_enf.stderr:
+                print(f'Different stderr output for inputs {args}')
+                sys.stdout.flush()
+                sys.stdout.write('=== stderr (expected) ===\n')
+                sys.stdout.write(result_ref.stderr.decode(errors='ignore'))
+                sys.stdout.write('=== stderr (actual) ===\n')
+                sys.stdout.write(result_enf.stderr.decode(errors='ignore'))
+                self.assertEqual(result_ref.stderr, result_enf.stderr)
+        return binary_ref, binary_enf
+
+    def test_hello_world(self):
+        code = SourceCode.from_string('#include <stdio.h>\nint main() { puts("Hello World!"); return 0; }')
+        binary, outputs = self._compile_link_run(code, [[]], enforce=True)
+        self.assertEqual(outputs, [b'Hello World!\n'])
+        os.remove(binary)
+
+    def test_getone_enforce(self):
+        binary, outputs = self._compile_link_run(SAMPLE_PREFIX + SAMPLE_GETONE_2, [['1'], ['2'], ['3'], ['4']], enforce=True)
+        self.assertEqual(outputs[0].decode().strip(), 'f1(1)')
+        self.assertEqual(outputs[1].decode().strip(), 'f2(1)')
+        self.assertEqual(outputs[2].decode().strip(), 'g1(1)')
+        self.assertEqual(outputs[3].decode().strip(), 'g2(1)')
+        rc = subprocess.run(RUN_PREFIX + [binary, '5'], timeout=10)
+        os.remove(binary)
+        self.assertEqual(rc.returncode, ARCH['signal'])
+
+    def test_libc_functions(self):
+        SAMPLE = '''
+        #include <stdlib.h>
+        #include <stdio.h>
+        #include <signal.h>
+        #include <unistd.h>
+        typedef void (*sighandler_t)(int);
+        typedef void (*exitfunc)(void);
+        void f1(void) { printf("f1()\\n"); }
+        void f2(void) { printf("f2()\\n"); }
+        void g1(int x) { printf("g1(%d)\\n", x); }
+        void g2(int x) { printf("g2(%d)\\n", x); }
+        int main(int argc, const char* argv[]) {
+            sighandler_t fs = argv[1][0] == '1' ? g1 : g2;
+            exitfunc fe = argv[1][0] == '2' ? f2 : f1;
+            signal(SIGUSR1, fs);
+            atexit(fe);
+            kill(getpid(), SIGUSR1);
+            return 0;
+        }
+        '''
+        args = [['0'], ['1'], ['2']]
+        source = SourceCode.from_string(SAMPLE)
+        self._compare_enforced_unenforced(source, args)
+        self._compare_enforced_unenforced(source.to_cxx(), args)
+
+    def test_libc_functions_direct(self):
+        SAMPLE = '''
+        #include <stdlib.h>
+        #include <stdio.h>
+        #include <signal.h>
+        #include <unistd.h>
+        void f1(void) { printf("f1()\\n"); }
+        void g1(int x) { printf("g1(%d)\\n", x); }
+        int main(int argc, const char* argv[]) {
+            signal(SIGUSR1, g1);
+            atexit(f1);
+            kill(getpid(), SIGUSR1);
+            return 0;
+        }
+        '''
+        args = [[]]
+        source = SourceCode.from_string(SAMPLE)
+        self._compare_enforced_unenforced(source, args)
+        self._compare_enforced_unenforced(source.to_cxx(), args)
+
+    def test_sigaction(self):
+        SAMPLE = '''
+        #include <stdlib.h>
+        #include <stdio.h>
+        #include <signal.h>
+        #include <unistd.h>
+        typedef void (*sighandler_t)(int);
+        void g1(int x) { printf("g1(%d)\\n", x); }
+        void g2(int x) { printf("g2(%d)\\n", x); }
+        int main(int argc, const char* argv[]) {
+            struct sigaction sa;
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = 0;
+            sa.sa_handler = argv[1][0] == '1' ? g1 : g2;
+            sa.sa_handler(18);
+            sigaction(SIGUSR1, &sa, NULL);
+            kill(getpid(), SIGUSR1);
+            return 0;
+        }
+        '''
+        args = [['0'], ['1'], ['2']]
+        source = SourceCode.from_string(SAMPLE)
+        self._compare_enforced_unenforced(source, args)
+        self._compare_enforced_unenforced(source.to_cxx(), args)
+
+    def test_sigaction_multi(self):
+        SAMPLE = '''
+        #include <stdlib.h>
+        #include <stdio.h>
+        #include <signal.h>
+        #include <unistd.h>
+        typedef void (*sighandler_t)(int);
+        void g1(int x) { printf("g1(%d)\\n", x); }
+        void g2(int x) { printf("g2(%d)\\n", x); }
+        int main(int argc, const char* argv[]) {
+            struct sigaction sa;
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = 0;
+            sa.sa_handler = argv[1][0] == '1' ? g1 : g2;
+            sa.sa_handler(18);
+            sigaction(SIGUSR1, &sa, NULL);
+            sigaction(SIGUSR2, &sa, NULL);
+            kill(getpid(), SIGUSR1);
+            kill(getpid(), SIGUSR2);
+            return 0;
+        }
+        '''
+        args = [['0'], ['1'], ['2']]
+        source = SourceCode.from_string(SAMPLE)
+        self._compare_enforced_unenforced(source, args)
+        self._compare_enforced_unenforced(source.to_cxx(), args)
+
+    def test_fgets(self):
+        code = SourceCode.from_string('''
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdlib.h>
+        int main(int argc, const char* argv[]) {
+          char buffer[7];
+          FILE *f = fopen("/etc/passwd", "r");
+          fgets(buffer, 6, f);
+          puts(buffer);
+          return 0;
+        }
+        ''')
+        binary, output = self._compile_link_run(code, [[]], enforce=True)
+        os.remove(binary)
+        self.assertEqual(output[0], b'root:\n')
+
+    def test_printf(self):
+        code = SourceCode.from_string('''
+        #include <stdio.h>
+        int main(int argc, const char* argv[]) {
+          printf("argc=%d\\n", argc);
+          return 0;
+        }
+        ''')
+        binary, output = self._compile_link_run(code, [[]], enforce=True)
+        os.remove(binary)
+        self.assertEqual(output[0], b'argc=1\n')
+
+    def test_clock_gettime(self):
+        code = SourceCode.from_string('''
+        #include <stdio.h>
+        #include <time.h>
+        int main(int argc, const char* argv[]) {
+            struct timespec ts;
+            printf("%d\\n", clock_gettime(CLOCK_REALTIME, &ts));
+        }
+        ''')
+        binary, output = self._compile_link_run(code, [[]], enforce=True)
+        os.remove(binary)
+        self.assertEqual(output[0], b'0\n')
+
+    def test_qsort(self):
+        code = SourceCode.from_string('''
+        #include <stdio.h>
+        #include <stdlib.h>
+        int intcmp(const void *p1, const void* p2) {
+            return *((int*) p1) - *((int*) p2);
+        }
+        int main(int argc, const char* argv[]) {
+            int numbers[3] = {3,1,2};
+            qsort(numbers, 3, sizeof(int), intcmp);
+            printf("%d - %d - %d\\n", numbers[0], numbers[1], numbers[2]);
+            return 0;
+        }
+        ''')
+        binary, output = self._compile_link_run(code, [[]], enforce=True)
+        os.remove(binary)
+        self.assertEqual(output[0], b'1 - 2 - 3\n')
+
+    def test_pthread(self):
+        SAMPLE = '''
+        #include <pthread.h>
+        void *target(void *f) {
+            ((functype) f)(1);
+            return NULL;
+        }
+        int main() {
+            void *vp = (void *) f1;
+            pthread_t thread;
+            pthread_create(&thread, NULL, target, vp);
+            pthread_join(thread, 0);
+            return 0;
+        }
+        '''
+        code = SourceCode.from_string(SAMPLE_PREFIX + SAMPLE)
+        binary, output = self._compile_link_run(code, [[]], enforce=True)
+        os.remove(binary)
+        self.assertEqual(output[0], b'f1(1)\n')
+
+    def _get_library(self) -> str:
+        code = SourceCode.from_string(LIBRARY_CODE + '''
+        #include <stdio.h>
+        #include <stdlib.h>
+        static int intcmp(const void *p1, const void* p2) {
+            return *((int*) p1) - *((int*) p2);
+        }
+        void test_qsort() {
+            int numbers[5] = {3,1,2,4,8};
+            qsort(numbers, 5, sizeof(int), intcmp);
+            printf("%d - %d - %d - %d - %d\\n", numbers[0], numbers[1], numbers[2], numbers[3], numbers[4]);
+        }
+        ''')
+        code = self._make_musl(code.make_shared())
+        library = compile_link(code, enforce=True)
+        atexit.register(lambda: os.remove(library))
+        return library
+
+    def test_libraries(self):
+        library = self._get_library()
+        code = SourceCode.from_string(LIBRARY_HEADER + SAMPLE_PREFIX + '''
+        void test_qsort();
+        
+        int main(int argc, const char *argv[]) {
+            if (argc == 1) {
+                test_qsort();
+            } else if (argc == 2) {
+                library_get1(argv[1][0])(1);
+            } else if (argc == 3) {
+                library_call1(argv[1][0] == '1' ? f1 : f2);
+            }
+            return 0;
+        }
+        ''')
+        code.add_library(library)
+        binary, output = self._compile_link_run(code, [[], ['1'], ['1', '1']], enforce=True)
+        self.assertEqual(output[0], b'1 - 2 - 3 - 4 - 8\n')
+        self.assertEqual(output[1], b'lib11 1\n')
+        self.assertEqual(output[2], b'f1(1)\n')
+
+    def test_dlopen(self):
+        library = self._get_library()
+        SAMPLE = LIBRARY_HEADER + '''
+        #include <dlfcn.h>
+        
+        typedef void (*functype3)();
+        
+        int main() {
+            void* handle = dlopen("LIBRARY_PATH", RTLD_LAZY);
+            if (handle) {
+                functype f = (functype) dlsym(handle, "lib3");
+                if (f) f(1);
+                else fprintf(stderr, "Function not found!\\n");
+                
+                functype3 f3 = (functype3) dlsym(handle, "test_qsort");
+                if (f3) f3();
+                else fprintf(stderr, "Function test_qsort not found!\\n");
+            } else {
+                fprintf(stderr, "Library could not be loaded!\\n");
+            }
+            return 0;
+        }
+        '''.replace('LIBRARY_PATH', library)
+        code = self._make_musl(SourceCode.from_string(SAMPLE))
+        code.env['TG_DYNLIB_SUPPORT'] = '1'
+        code.linker_flags.append('-ldl')
+        binary, outputs = compile_link_run(code, [[]], enforce=True)
+        self.assertEqual(b'lib3 1\n1 - 2 - 3 - 4 - 8\n', outputs[0])
+
+    def test_fork(self):
+        code = SourceCode.from_string('''
+        #include <unistd.h>
+        #include <stdio.h>
+        #include <stdlib.h>
+        static int intcmp(const void *p1, const void* p2) { return *((int*) p1) - *((int*) p2); }
+        static void require_computation() {
+            int numbers[3] = {3,1,2};
+            qsort(numbers, 3, sizeof(int), intcmp);
+            printf("%d - %d - %d\\n", numbers[0], numbers[1], numbers[2]);
+        } 
+        int main(int argc, const char* argv[]) {
+            if (argc > 1)
+                require_computation();
+            if (fork() == 0) {
+                // child
+                puts("Hello child!");
+                require_computation();
+                exit(0);
+            } else {
+                // parent
+                sleep(1);
+            }
+            return 0;
+        }
+        ''')
+        binary, output = self._compile_link_run(code, [[], ['1']], enforce=True)
+        self.assertEqual(output[0], b'Hello child!\n1 - 2 - 3\n')
+        self.assertEqual(output[1], b'1 - 2 - 3\nHello child!\n1 - 2 - 3\n')
+
+    def test_atfork(self):
+        code = SourceCode.from_string('''
+        #include <unistd.h>
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <pthread.h>
+        static int intcmp(const void *p1, const void* p2) { return *((int*) p1) - *((int*) p2); }
+        static void require_computation() {
+            int numbers[3] = {3,1,2};
+            qsort(numbers, 3, sizeof(int), intcmp);
+            printf("%d - %d - %d\\n", numbers[0], numbers[1], numbers[2]);
+        }
+        static void parent(void) { sleep(1); puts("parent"); }
+        static void child(void) { puts("child"); }
+        int main(int argc, const char* argv[]) {
+            if (argc > 1)
+                require_computation();
+            pthread_atfork(0, parent, child);
+            if (fork() == 0) {
+                // child
+                exit(0);
+            } else {
+                // parent
+                sleep(1);
+            }
+            return 0;
+        }
+        ''')
+        binary, output = self._compile_link_run(code, [[], ['1']], enforce=True)
+        self.assertEqual(output[0], b'child\nparent\n')
+        self.assertEqual(output[1], b'1 - 2 - 3\nchild\nparent\n')
+
+
+class MuslLibcStaticTestCases(MuslLibcTestCases):
+    def _make_musl(self, code: Union[SourceCode, str]) -> SourceCode:
+        if isinstance(code, str):
+            code = SourceCode.from_string(code)
+        code.compiler_binary = MUSL_CLANG
+        code.linker_flags += ['-static', '-g']
+        for f in code.files.values():
+            f.compiler_binary = MUSL_CLANG
+            f.flags += ['-g']
+        return code
+
+    def test_instrumentation(self):
+        code = SourceCode.from_string(SAMPLE_PREFIX + SAMPLE_GETONE)
+        try:
+            binary, outputs = self._compile_link_run(code, [['1'], ['3']], enforce=False, instrument=True)
+            self.assertEqual(outputs, [b'f1(1)\n', b'g1(1)\n'])
+            ct = CallTargets.from_pattern(f'{binary}.calltargets*.json')
+            self.assertEqual(len(ct.binaries), 1)
+            self.assertEqual(len(ct.cmdlines), 2)
+            self.assertIn('call#80.0 in main', ct.calls)
+            self.assertSetEqual(ct.calls['call#80.0 in main'], {'f1', 'g1'})
+            self.assertIn('call#80.1 in __fwritex', ct.calls)
+            self.assertSetEqual(ct.calls['call#80.1 in __fwritex'], {'__stdout_write'})
+        finally:
+            code.cleanup(True)
+
+    test_libraries = None
+    test_dlopen = None
 
 
 del OneCallTestCaseBase

@@ -51,6 +51,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
         g++ \
         git \
         python3 \
+        python-is-python3 \
         libz3-dev \
         libzip-dev \
         libtinfo-dev \
@@ -68,7 +69,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
     apt-get clean
 
 # Souffle has no official repo, we use their Github releases instead
-RUN wget -O/tmp/souffle.deb 'https://github.com/souffle-lang/souffle/releases/download/2.2/x86_64-ubuntu-2004-souffle-2.2-Linux.deb' && \
+RUN wget -O/tmp/souffle.deb 'https://github.com/souffle-lang/souffle/releases/download/2.3/x86_64-ubuntu-2004-souffle-2.3-Linux.deb' && \
     dpkg -i /tmp/souffle.deb && \
     rm /tmp/souffle.deb
 
@@ -101,9 +102,22 @@ WORKDIR /typro
 RUN rm -rf /typro/build && \
     scripts/build-setup.sh && \
     cd build && \
-    make -j $(nproc) clang lld llvm-typegraph typro-instrumentation typro-rt && \
+    make -j $(nproc) clang lld llvm-typegraph typro-instrumentation typro-rt llvm-config llvm-ar llvm-ranlib llvm-dis && \
     ln -s /typro/build/lib /usr/typro-lib && \
     mkdir -p /typro/build/lib/clang/10.0.0/share/ && \
     cp /typro/scripts/cfi_blacklist.txt /typro/build/lib/clang/10.0.0/share/
+
+# build musl libc
+RUN apt-get update && \
+    apt-get install -y clang-10 lld-10 && \
+    apt-get clean && \
+    mkdir /typro/sysroots && \
+    ln -s /usr/bin/ld.lld-10 /usr/local/bin/ld.lld && \
+    /typro/scripts/build-libraries-rt.sh && \
+    /typro/scripts/build-libraries.sh && \
+    rm -rf /typro/sysroots/*.src.tar.xz /typro/sysroots/musl*.tar.gz /typro/sysroots/*-work && \
+    apt-get remove -y clang-10 lld-10 && \
+    apt-get autoremove -y && \
+    rm -f /usr/local/bin/ld.lld
 
 ENV PATH="/typro/build/bin:$PATH"

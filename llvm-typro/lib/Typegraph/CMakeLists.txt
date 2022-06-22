@@ -89,25 +89,12 @@ if (NOT json_POPULATED)
 	include_directories("${json_SOURCE_DIR}/include")
 endif ()
 
-add_library(typro-instrumentation SHARED
-		runtime/instrumentation_collect_calltargets.cpp
-		Typegraph.cpp
-		TGCallGraph.cpp
-		typegraph_function_uses.cpp
-		abstract_map.h
-		algorithms.h
-		color_map.h
-		scc_algorithms.h
-		${CMAKE_CURRENT_BINARY_DIR}/compute_function_uses.cpp
-		${CMAKE_CURRENT_BINARY_DIR}/compute_function_uses_simple.cpp
-		# ${CMAKE_CURRENT_BINARY_DIR}/compute_equivalence.cpp
-		)
+add_library(typro-instrumentation SHARED runtime/instrumentation_collect_calltargets.cpp)
 target_compile_definitions(typro-instrumentation PUBLIC WITHOUT_LLVM)
 target_link_options(typro-instrumentation PRIVATE "${OpenMP_CXX_FLAGS}")
 
 
-add_library(typro-rt SHARED
-		runtime/enforcing_rt.cpp
+set(TYPRO_RT_SOURCES runtime/enforcing_rt.cpp
 		runtime/enforcing_rt.h
 		runtime/enforcing_lazy.cpp
 		runtime/typegraph_binary_loader.cpp
@@ -120,10 +107,9 @@ add_library(typro-rt SHARED
 		algorithms.h
 		color_map.h
 		scc_algorithms.h
-		${CMAKE_CURRENT_BINARY_DIR}/compute_function_uses.cpp
-		# ${CMAKE_CURRENT_BINARY_DIR}/compute_function_uses_simple.cpp
-		# ${CMAKE_CURRENT_BINARY_DIR}/compute_equivalence.cpp
-		)
+		${CMAKE_CURRENT_BINARY_DIR}/compute_function_uses.cpp)
+
+add_library(typro-rt SHARED ${TYPRO_RT_SOURCES})
 target_compile_definitions(typro-rt PUBLIC WITHOUT_LLVM)
 target_link_options(typro-rt PRIVATE "${OpenMP_CXX_FLAGS}")
 # for the optimized tail call in tgLazyDispatcher<>, this function must not use stack variables.
@@ -132,4 +118,16 @@ set_source_files_properties(runtime/enforcing_lazy.cpp PROPERTIES COMPILE_FLAGS 
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
 	target_link_options(typro-rt PRIVATE "${OpenMP_CXX_FLAGS}" "-s")
+endif()
+
+if (DEFINED TYPRO_LIBS_ONLY)
+	add_library(typro-instrumentation-static STATIC runtime/instrumentation_collect_calltargets.cpp)
+	target_compile_definitions(typro-instrumentation-static PUBLIC WITHOUT_LLVM)
+	target_link_options(typro-instrumentation-static PRIVATE "${OpenMP_CXX_FLAGS}")
+	set_target_properties(typro-instrumentation-static PROPERTIES POSITION_INDEPENDENT_CODE true)
+
+	add_library(typro-rt-static STATIC ${TYPRO_RT_SOURCES})
+	target_compile_definitions(typro-rt-static PUBLIC WITHOUT_LLVM)
+	target_link_options(typro-rt-static PRIVATE "${OpenMP_CXX_FLAGS}")
+	set_target_properties(typro-rt-static PROPERTIES POSITION_INDEPENDENT_CODE true)
 endif()

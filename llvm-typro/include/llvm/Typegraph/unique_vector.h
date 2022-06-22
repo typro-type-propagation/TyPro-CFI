@@ -1,6 +1,7 @@
 #ifndef LLVM_TYPEGRAPHS_UNIQUE_VECTOR_H
 #define LLVM_TYPEGRAPHS_UNIQUE_VECTOR_H
 
+#include <cstddef>
 #include <vector>
 
 namespace basegraph {

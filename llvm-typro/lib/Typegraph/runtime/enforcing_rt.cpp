@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
+// #define RT_EVALUATE_RUNTIME
+
 namespace typegraph {
 namespace rt {
 
@@ -20,6 +22,21 @@ static inline void *pageOf(void *Addr) {
   I = I ^ (I & 0xfff);
   return (void*) I;
 }
+
+#ifdef RT_EVALUATE_RUNTIME
+#include <syscall.h>
+void reportRuntime(double T, const char *What) {
+  char Buffer[256];
+  int Size = sprintf(Buffer, "[RT BENCH] %9.6fs %s\n", T, What);
+  while (Size > 0) {
+    // custom printf, not depending on stdlib
+    int Result = syscall(SYS_write, 2, Buffer, Size);
+    if (Result <= 0)
+      return;
+    Size -= Result;
+  }
+}
+#endif
 
 class DynamicSymbolInfo {
 public:
@@ -42,6 +59,7 @@ struct TypegraphRuntime {
 
   std::vector<std::unique_ptr<FunctionInfos>> Functions;
   std::vector<DispatcherInfos> Dispatchers;
+  std::map<const std::string *, std::set<FunctionInfos>> ResolvePoints;
   std::map<void *, long> DynamicSymbolToId;
   std::map<const std::string *, std::unique_ptr<DynamicSymbolInfo>> DynamicSymbolInfos;
   long NextDynamicSymbolID = 0x100000;
@@ -58,6 +76,11 @@ struct TypegraphRuntime {
     if (MainModuleSeen && getenv("TG_CFI_OUTPUT_RT")) {
       writeCfiResultsToJson(getenv("TG_CFI_OUTPUT_RT"));
     }
+#ifdef RT_EVALUATE_RUNTIME
+    if (MainModuleSeen && Modules.size() > 1) {
+      evaluateRuntime();
+    }
+#endif
   }
 
   bool loadAllGraphData(bool InvalidateHandlers) {
@@ -66,6 +89,10 @@ struct TypegraphRuntime {
     // we don't need graph data if we have only one module
     if (LoadableGraphData.size() < 2 && Graph.num_vertices() == 0)
       return false;
+
+#ifdef RT_EVALUATE_RUNTIME
+    auto StartTime = std::chrono::high_resolution_clock::now();
+#endif
 
     if (DEBUG_OUTPUT)
       std::cerr << "[RT] Loading " << LoadableGraphData.size() << " graphs ..." << std::endl;
@@ -78,6 +105,12 @@ struct TypegraphRuntime {
       dprintf("[RT] # vertices = %ld   # edges = %ld\n", Graph.num_vertices(), Graph.num_edges());
     }
     LoadableGraphData.clear();
+
+#ifdef RT_EVALUATE_RUNTIME
+    auto Duration = std::chrono::high_resolution_clock::now() - StartTime;
+    reportRuntime(std::chrono::duration_cast<std::chrono::microseconds>(Duration).count() / 1000000.0, "loading");
+    StartTime = std::chrono::high_resolution_clock::now();
+#endif
 
     Graph.combineEquivalencesInline(false, false, false);
     Graph.computeReachability(true, false);
@@ -115,6 +148,8 @@ struct TypegraphRuntime {
       }
     }
 
+    computeResolvePointTargetSets();
+
     if (getenv("TG_RT_GRAPH_OUTPUT")) {
       Graph.saveToFile(getenv("TG_RT_GRAPH_OUTPUT"));
       dprintf("Saved graph to '%s'\n", getenv("TG_RT_GRAPH_OUTPUT"));
@@ -124,7 +159,24 @@ struct TypegraphRuntime {
     if (InvalidateHandlers) {
       invalidateDispatchersIfNecessary();
     }
+
+#ifdef RT_EVALUATE_RUNTIME
+    Duration = std::chrono::high_resolution_clock::now() - StartTime;
+    reportRuntime(std::chrono::duration_cast<std::chrono::microseconds>(Duration).count() / 1000000.0, "computation");
+#endif
+
     return true;
+  }
+
+  void computeResolvePointTargetSets() {
+    for (auto &It: ResolvePoints) {
+      auto &CallInfos = Graph.CallInfos[It.first];
+      for (auto V: CallInfos.AllVertices) {
+        for (auto &FU : Graph[V].FunctionUses) {
+          It.second.insert(*FU.Function);
+        }
+      }
+    }
   }
 
   void invalidateDispatchersIfNecessary() {
@@ -222,7 +274,40 @@ struct TypegraphRuntime {
       invalidateDispatchersIfNecessary();
     }
 
+    dprintf("[RT] generateDispatcher finished (index=%d, r11=%lu =%p)\n", Index, CurrentID, (void *)CurrentID);
     return *Dispatchers[Index].DispatcherAddr;
+  }
+
+  void generateAllDispatcher() {
+    // concurrency might affect us here!
+    std::lock_guard Guard(Mutex);
+
+    bool GraphHasChanged = loadAllGraphData(false);
+
+    // build handler here
+    void *CurrentRW = nullptr;
+    for (size_t Index = 0; Index < Dispatchers.size(); Index++) {
+      if (Dispatchers[Index].CurrentImplHandlesTargets != Dispatchers[Index].Targets.size()) {
+        if (CurrentRW != (void *)Dispatchers[Index].DispatcherAddr) {
+          if (CurrentRW)
+            makeRO(CurrentRW);
+          CurrentRW = (void *)Dispatchers[Index].DispatcherAddr;
+          makeRW(CurrentRW);
+        }
+        {
+          AssemblyBuilder AsmBuilder;
+          AsmBuilder.generateDispatcher(Index, Dispatchers[Index].Targets, Dispatchers[Index].DispatcherAddr,-1);
+          Dispatchers[Index].CurrentImplHandlesTargets = Dispatchers[Index].Targets.size();
+        }
+      }
+    }
+    if (CurrentRW) {
+      makeRO(CurrentRW);
+    }
+
+    if (GraphHasChanged) {
+      invalidateDispatchersIfNecessary();
+    }
   }
 
   std::map<long, const std::string *> getFunctionIDToSymbol() {
@@ -330,6 +415,31 @@ struct TypegraphRuntime {
     return It->second;
   }
 
+  void *resolvePoint(const char *Name, long ID) {
+    const auto *Symbol = Graph.SymbolContainer->get(Name);
+    auto It = ResolvePoints.find(Symbol);
+    if (It == ResolvePoints.end()) {
+      ResolvePoints[Symbol] = {};
+      if (!loadAllGraphData(true))
+        computeResolvePointTargetSets();
+    }
+    for (auto &Target: ResolvePoints[Symbol]) {
+      if (Target.ID == (unsigned long) ID)
+        return Target.Address;
+    }
+    fprintf(stderr, "[RT] Can't resolve point %s - invalid target %lu (=0x%lx)\n", Name, ID, ID);
+#if defined(__x86_64__) || defined(_M_X64)
+    __asm__("ud2");
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    __asm__("brk 1");
+#elif defined(mips) || defined(__mips__) || defined(__mips)
+    __asm__("break");
+#else
+    #error "Unsupported architecture!"
+#endif
+    return nullptr;
+  }
+
   void makeRW(void *Addr) {
     // fprintf(stderr, "[mapping] %p = rw\n", Addr);
     if (Addr && mprotect(pageOf(Addr), 4096, PROT_READ | PROT_WRITE))
@@ -341,23 +451,46 @@ struct TypegraphRuntime {
     if (Addr && mprotect(pageOf(Addr), 4096, PROT_READ))
       perror("mprotect ro");
   }
+
+  void evaluateRuntime() {
+    auto StartTime = std::chrono::high_resolution_clock::now();
+    loadAllGraphData(false);
+    auto StartTimeDispatchers = std::chrono::high_resolution_clock::now();
+    generateAllDispatcher();
+    auto DurationDispatchers = std::chrono::high_resolution_clock::now() - StartTimeDispatchers;
+    auto Duration = std::chrono::high_resolution_clock::now() - StartTime;
+#ifdef RT_EVALUATE_RUNTIME
+    reportRuntime(std::chrono::duration_cast<std::chrono::microseconds>(DurationDispatchers).count() / 1000000.0, "dispatchers");
+    reportRuntime(std::chrono::duration_cast<std::chrono::microseconds>(Duration).count() / 1000000.0, "total");
+    const auto *MaxNumber = getenv("TYPRO_RT_MAX_GRAPHS");
+    if (MaxNumber && std::stoi(MaxNumber) == Modules.size()) {
+      exit(0);
+    }
+#endif
+  }
 };
 
-TypegraphRuntime Runtime;
+TypegraphRuntime *Runtime = nullptr;
 
 } // namespace rt
 } // namespace typegraph
 
-[[maybe_unused]] void __tg_register_graph(const char *GraphData, void **References, long ModuleID) {
-  typegraph::rt::Runtime.registerGraph(GraphData, References, ModuleID);
+[[maybe_unused]] EXTERN void __tg_register_graph(const char *GraphData, void **References, long ModuleID) {
+  if (typegraph::rt::Runtime == nullptr)
+    typegraph::rt::Runtime = new typegraph::rt::TypegraphRuntime();
+  typegraph::rt::Runtime->registerGraph(GraphData, References, ModuleID);
 }
 
 void __tg_dynamic_error(size_t Index, long ID) {
-  typegraph::rt::Runtime.reportError(Index, ID);
+  typegraph::rt::Runtime->reportError(Index, ID);
 }
 
 long __tg_dlsym_to_id(typegraph::rt::DynamicSymbolInfo *DynamicSymbolCall, void *Symbol) {
-  return typegraph::rt::Runtime.resolveDynamicSymbol(DynamicSymbolCall, Symbol);
+  return typegraph::rt::Runtime->resolveDynamicSymbol(DynamicSymbolCall, Symbol);
 }
 
-void *generateDispatcher(int Index, uintptr_t CurrentID) { return typegraph::rt::Runtime.generateDispatcher(Index, CurrentID); }
+void *__tg_resolve_symbol(const char *Name, long ID) {
+  return typegraph::rt::Runtime->resolvePoint(Name, ID);
+}
+
+void *generateDispatcher(int Index, uintptr_t CurrentID) { return typegraph::rt::Runtime->generateDispatcher(Index, CurrentID); }

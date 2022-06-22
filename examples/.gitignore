@@ -10,6 +10,11 @@
 /install_ref/
 /install_instrument/
 /install_icall/
+/install_musl_enforce/
+/install_musl_enforce_static/
+/install_musl_instrument/
+/install_arm64_ref/
+/install_arm64_enforce_static/
 /httpd/
 /lib_pcre/
 /lib_zlib/
@@ -18,3 +23,4 @@
 /vsftpd/
 /build.log
 /logs/
+/install_arm64_enforcestatic/

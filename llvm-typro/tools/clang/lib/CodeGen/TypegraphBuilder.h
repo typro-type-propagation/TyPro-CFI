@@ -3,6 +3,7 @@
 
 #include "clang/AST/Expr.h"
 #include "clang/AST/GlobalDecl.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/IR/Value.h"
 #include <map>
 
@@ -73,6 +74,7 @@ raw_ostream &operator<<(raw_ostream &OS, const TypeGraphContext &context);
  */
 class TypeGraphBuilder {
   std::unique_ptr<TypeGraphRepr> graph;
+  llvm::json::Object ExportedTypeInfos;
   std::map<const llvm::CallBase *, int> uniqueCallNumber;
   std::map<const std::string, int> nextCallNumber;
   std::set<const Expr *> ignoreTheseExpressions;

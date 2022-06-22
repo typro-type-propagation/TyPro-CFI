@@ -7,7 +7,7 @@ import statistics
 import subprocess
 import time
 from functools import partial
-from typing import List, Tuple, Callable, Dict
+from typing import List, Tuple, Callable, Dict, Set
 
 import numpy
 
@@ -18,6 +18,7 @@ TYPEGRAPH_COMPILER_DIR = '/typro/build'
 if not os.path.exists(TYPEGRAPH_COMPILER_DIR):
     TYPEGRAPH_COMPILER_DIR = '../llvm-typro/cmake-build-minsizerel'
 COLLECTED_GRAPHS = '../collected-graphs/SPEC2006'
+COLLECTED_GRAPHS_MUSL = '../collected-graphs/SPEC2006-musl'
 SPEC_ROOT = '/spec'
 if not os.path.exists(SPEC_ROOT):
     SPEC_ROOT = '../../spec2006'
@@ -28,21 +29,22 @@ ALL_SPEC_BENCHES.sort()
 SPEC_SUFFIX = 'typegraph-enforce'
 
 
-def copy_instrumentation_results():
+def copy_instrumentation_results(pattern='clang-64bit-o3-typegraph'):
     """
     Copy results from instrumented runs to the collected-graphs directory
     :return:
     """
     num = '0000'
     os.makedirs(COLLECTED_GRAPHS, exist_ok=True)
+    os.makedirs(COLLECTED_GRAPHS_MUSL, exist_ok=True)
     count = 0
     count_benches = 0
     for bench in ALL_SPEC_BENCHES:
         base = SPEC_BENCH_PATH + '/' + bench
-        files = glob.glob(f'{base}/run/run_base_*_clang-64bit-o3-typegraph.{num}/*_base.clang-64bit-o3-typegraph.calltargets*.json')
+        files = glob.glob(f'{base}/run/run_base_*_{pattern}.{num}/*_base.{pattern}.calltargets*.json')
         if not files: continue
         print(f'- {len(files)} json files for {bench} ...')
-        target = COLLECTED_GRAPHS + '/' + bench
+        target = (COLLECTED_GRAPHS_MUSL if 'musl' in pattern else COLLECTED_GRAPHS) + '/' + bench
         os.makedirs(target, exist_ok=True)
         for f in files:
             f2 = os.path.basename(os.path.dirname(f)).split('_')[2] + '_' + os.path.basename(f)
@@ -52,19 +54,22 @@ def copy_instrumentation_results():
     print(f'Copied {count} json files for {count_benches} benchmarks')
 
 
-def copy_cfi_build_results():
+def copy_cfi_build_results(pattern='clang-64bit-o3-'+SPEC_SUFFIX):
     num = '0000'
     os.makedirs(COLLECTED_GRAPHS, exist_ok=True)
+    os.makedirs(COLLECTED_GRAPHS_MUSL, exist_ok=True)
     count = 0
     count_benches = 0
     for bench in ALL_SPEC_BENCHES:
         base = SPEC_BENCH_PATH + '/' + bench
-        files = glob.glob(f'{base}/build/build_base_clang-64bit-o3-cfi-icall.{num}/icfi_icall.json')
-        files += glob.glob(f'{base}/build/build_base_clang-64bit-o3-cfi-icall.{num}/ifcc.json')
-        files += glob.glob(f'{base}/build/build_base_clang-64bit-o3-{SPEC_SUFFIX}.{num}/ifcc.json')
-        files += glob.glob(f'{base}/build/build_base_clang-64bit-o3-{SPEC_SUFFIX}.{num}/tgcfi.json')
+        files = []
+        if 'musl' not in pattern:
+            files += glob.glob(f'{base}/build/build_base_clang-64bit-o3-cfi-icall.{num}/icfi_icall.json')
+            files += glob.glob(f'{base}/build/build_base_clang-64bit-o3-cfi-icall.{num}/ifcc.json')
+        files += glob.glob(f'{base}/build/build_base_{pattern}.{num}/ifcc.json')
+        files += glob.glob(f'{base}/build/build_base_{pattern}.{num}/tgcfi.json')
         if not files: continue
-        target = COLLECTED_GRAPHS + '/' + bench
+        target = (COLLECTED_GRAPHS_MUSL if 'musl' in pattern else COLLECTED_GRAPHS) + '/' + bench
         os.makedirs(target, exist_ok=True)
         for f in files:
             shutil.copy(f, os.path.join(target, os.path.basename(f)))
@@ -231,6 +236,55 @@ def recompile_all_spec_benchmarks(**kwargs):
 
 
 
+def print_musl_analysis():
+    musl_calls = set()
+    musl_targets: Dict[str, Set[str]] = {}
+    all_averages = []
+    for bench in get_spec_benches():
+        fname_musl = f'{COLLECTED_GRAPHS_MUSL}/{bench}/tgcfi.json'
+        fname_raw = f'{COLLECTED_GRAPHS}/{bench}/tgcfi.json'
+        if not os.path.exists(fname_musl) or not os.path.exists(fname_raw):
+            print('MISSING', fname_musl, fname_raw)
+            continue
+        call_targets_musl = CallTargets()
+        call_targets_raw = CallTargets()
+        for p in [f'{COLLECTED_GRAPHS_MUSL}/{bench}/*.calltargets*.json']:
+            if '*' in p:
+                for f in glob.glob(p):
+                    call_targets_musl.load_file(f)
+            else:
+                call_targets_musl.load_file(p)
+        for p in [f'{COLLECTED_GRAPHS}/{bench}/*.calltargets*.json']:
+            if '*' in p:
+                for f in glob.glob(p):
+                    call_targets_raw.load_file(f)
+            else:
+                call_targets_raw.load_file(p)
+        # compute
+        additional_calls = set(c for c, t in call_targets_musl.calls.items() if len(t) > 0) - set(c for c, t in call_targets_raw.calls.items() if len(t) > 0)
+        print(f'{len(additional_calls)} additional MUSL calls in {bench}')
+        musl_calls.update(additional_calls)
+
+        with open(fname_musl, 'r') as f:
+            targets = json.loads(f.read())['tg_targets_argnum']
+            for c in additional_calls:
+                if c not in musl_targets:
+                    musl_targets[c] = set()
+                musl_targets[c].update(targets[c])
+            average_targets = sum(len(targets[c]) for c in additional_calls) / len(additional_calls)
+            all_averages.append(average_targets)
+            print(f'{average_targets:.1f} average targets')
+    print('')
+    average_targets = sum(len(musl_targets[c]) for c in musl_calls) / len(musl_calls)
+    print(f'{len(musl_calls)} additional MUSL calls.')
+    print(f'Average number of targets (combined):          {average_targets:.3f}')
+    print(f'Average number of targets (avg over programs): {sum(all_averages)/len(all_averages):.3f}')
+    for c in musl_calls:
+        print(f'- {c:55s} | targets: {len(musl_targets[c]):2d}')
+
+
+
+
 def instrumentation_precision_overview_raw_numbers(use_ifcc_cut=False):
     def compute_precision(graph, call_targets: CallTargets, fname: str) -> Dict[str, CallPrecision]:
         # check compatibility
@@ -261,7 +315,7 @@ def instrumentation_precision_overview_raw_numbers(use_ifcc_cut=False):
     return precision
 
 
-def tgcfi_precision_overview_raw_numbers(with_argnum=False) -> Dict[str, Dict[str, CallPrecision]]:
+def tgcfi_precision_overview_raw_numbers(with_argnum=False, musl=False) -> Dict[str, Dict[str, CallPrecision]]:
     def compute_precision(fname, call_targets: CallTargets, with_argnum) -> Dict[str, CallPrecision]:
         with open(fname, 'r') as f:
             d = json.loads(f.read())['tg_targets' if not with_argnum else 'tg_targets_argnum']
@@ -272,10 +326,10 @@ def tgcfi_precision_overview_raw_numbers(with_argnum=False) -> Dict[str, Dict[st
 
     precision = {}
     for bench in get_spec_benches():
-        fname = f'{COLLECTED_GRAPHS}/{bench}/tgcfi.json'
+        fname = f'{COLLECTED_GRAPHS_MUSL if musl else COLLECTED_GRAPHS}/{bench}/tgcfi.json'
         if not os.path.exists(fname): continue
         call_targets = CallTargets()
-        for p in [f'{COLLECTED_GRAPHS}/{bench}/*.calltargets*.json']:
+        for p in [f'{COLLECTED_GRAPHS_MUSL if musl else COLLECTED_GRAPHS}/{bench}/*.calltargets*.json']:
             if '*' in p:
                 for f in glob.glob(p):
                     call_targets.load_file(f)
@@ -336,6 +390,29 @@ def ifcc_precision_overview_raw_numbers(varargs=False):
     return precision
 
 
+def cfguard_precision_overview_raw_numbers():
+    precision = {}
+    for bench in get_spec_benches():
+        fname = f'{COLLECTED_GRAPHS}/{bench}/ifcc.json'
+        if not os.path.exists(fname): continue
+        call_targets = CallTargets()
+        for p in [f'{COLLECTED_GRAPHS}/{bench}/*.calltargets*.json']:
+            if '*' in p:
+                for f in glob.glob(p):
+                    call_targets.load_file(f)
+            else:
+                call_targets.load_file(p)
+        # compute
+        with open(fname, 'r') as f:
+            ifcc = json.loads(f.read())['ifcc_targets_vararg']
+        with open(f'{COLLECTED_GRAPHS}/{bench}/icfi_icall.json', 'r') as f:
+            icall = json.loads(f.read())['icfi_targets_generalized']
+        with open(f'{COLLECTED_GRAPHS}/{bench}/tgcfi.json', 'r') as f:
+            tgcfi = json.loads(f.read())['tg_targets']
+        precision[bench] = call_targets.compute_precision_naive(ifcc, icall, tgcfi)
+    return precision
+
+
 def raw_numbers_to_cscan_cols(programs: List[str], data: Dict[str, Dict[str, CallPrecision]]):
     raw_avg = []
     raw_median = []
@@ -355,7 +432,7 @@ def raw_numbers_to_cscan_cols(programs: List[str], data: Dict[str, Dict[str, Cal
                 m = statistics.median(targets)
                 raw_avg.append(a)
                 raw_median.append(m)
-                formatted_avg.append(f'{a:6.2f}' + (' (!)' if errors else ''))
+                formatted_avg.append(f'{a:7.2f}' + (' (!)' if errors else ''))
                 formatted_median.append(f'{m:.1f}')
                 continue
         # no data available
@@ -406,6 +483,15 @@ def print_cscan_like_table():
     table.append(['+ argnum'] + formatted_avg + [p])
     # table.append(['(median)'] + formatted_median)
 
+    raw_avg, raw_median, formatted_avg, formatted_median = raw_numbers_to_cscan_cols(programs, tgcfi_precision_overview_raw_numbers(True, musl=True))
+    try:
+        p = geomean(numpy.array(raw_avg) / numpy.array(base_avg)) - 1
+        p = f'{p * 100:+5.1f}%'
+    except:
+        p = '-'
+    table.append(['+ musl'] + formatted_avg + [p])
+    # table.append(['(median)'] + formatted_median)
+
     raw_avg, raw_median, formatted_avg, formatted_median = raw_numbers_to_cscan_cols(programs, ifcc_precision_overview_raw_numbers())
     try:
         p = geomean(numpy.array(raw_avg) / numpy.array(base_avg)) - 1
@@ -414,6 +500,14 @@ def print_cscan_like_table():
         p = '-'
     table.append(['IFCC'] + formatted_avg + [p])
     #table.append(['(median)'] + formatted_median)
+
+    raw_avg, raw_median, formatted_avg, formatted_median = raw_numbers_to_cscan_cols(programs, cfguard_precision_overview_raw_numbers())
+    try:
+        p = geomean(numpy.array(raw_avg) / numpy.array(base_avg)) - 1
+        p = f'{p * 100:+5.1f}%'
+    except:
+        p = '-'
+    table.append(['CFGuard'] + formatted_avg + [p])
 
     clang_paper_raw = [22.03, 1, 8.91, 2, 600.84, 10, 7, 2.06, 5]
     clang_paper_err = [False, False, True, False, False, False, False, False, False]
@@ -443,9 +537,10 @@ def print_cscan_like_table():
 if __name__ == '__main__':
     ts = time.time()
     try:
-        recompile_typegraph()
-        clear_compiler_cache()
-        recompile_all_spec_benchmarks()
+        # recompile_typegraph()
+        # clear_compiler_cache()
+        # recompile_all_spec_benchmarks()
+        # recompile_all_spec_benchmarks(kind='typegraph-enforce-musl')
         #recompile_spec_benchmark('bzip2', 8, output_facts=True)
         #recompile_spec_benchmark('gcc', 2, output_facts=True)
         #recompile_spec_benchmark('gobmk', 8, output_facts=True)
@@ -460,13 +555,16 @@ if __name__ == '__main__':
         #recompile_spec_benchmark('hmmer', 8, 'cfi-icall')
         #recompile_all_spec_benchmarks(kind='cfi-icall')
         # copy_instrumentation_results()
-        copy_cfi_build_results()
+        # copy_instrumentation_results('clang-64bit-o3-typegraph-musl-instrumented')
+        # copy_cfi_build_results()
+        # copy_cfi_build_results('clang-64bit-o3-typegraph-enforce-musl')
         # instrumentation_precision_overview()
         #cfi_icall_precision_overview()
         #cfi_icall_precision_overview(generalized=True)
         #ifcc_precision_overview()
         #ifcc_precision_overview(varargs=True)
-        print_cscan_like_table()
+        print_musl_analysis()
+        #print_cscan_like_table()
     finally:
         ts = time.time() - ts
         os.system(f"notify-send 'SPEC finished' 'SPEC has finished computing. Took {ts:.1f} seconds.' 2>/dev/null")

@@ -5,7 +5,8 @@ import sys
 
 
 def get_souffle_version():
-	line = subprocess.check_output(['souffle', '--version']).decode().split('\n')[0]
+	lines = subprocess.check_output(['souffle', '--version']).decode().split('\n')
+	line = ([l for l in lines if 'Version' in l] + lines)[0]
 	version = line.split(': ')[1].replace('-', '.').replace('(64bit Domains)', '').split('.')
 	while len(version) < 4:
 		version.append('0')

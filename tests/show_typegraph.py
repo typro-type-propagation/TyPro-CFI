@@ -56,13 +56,19 @@ def get_nodes(graph: Typegraph, nodes) -> Set[int]:
         with open(nodes, 'r') as f:
             return get_nodes(graph, f.read())
     s = set()
-    for part in nodes.split(','):
-        if '/' in part:
-            t, c = part.strip().split('/')
+    if '/' in nodes:
+        while '/' in nodes:
+            t, cx = nodes.strip().split('/', 1)
+            if ',' in cx:
+                c, nodes = cx.split(',', 1)
+            else:
+                c = cx
+                nodes = ''
             v = graph.type_context_to_vertex[(t.strip(), c.strip())]
             assert v in graph.graph.vertices()
             s.add(v)
-        else:
+    else:
+        for part in nodes.split(','):
             s.add(int(part))
     return s
 

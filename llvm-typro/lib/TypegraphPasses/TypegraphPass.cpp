@@ -66,6 +66,24 @@ public:
   }
 
   void addGlobalCtor(llvm::Function *F) {
+    // if we have a statically linked musl libc, we don't use the init array, because it messes with initialization order.
+    // we add a direct call in libc_start_main_stage2, directly after the init array has been processed instead.
+    auto *Stage2 = F->getParent()->getFunction("libc_start_main_stage2");
+    if (Stage2) {
+      for (auto &BB: *Stage2) {
+        for (auto &Ins: BB) {
+          if (auto *C = dyn_cast<CallInst>(&Ins)) {
+            auto *A = dyn_cast<GlobalAlias>(C->getCalledOperand());
+            if ((A && A->getName() == "__libc_start_init") || (C->getCalledFunction() && C->getCalledFunction()->getName() == "__libc_start_init")) {
+              IRBuilder<> B(Ins.getNextNode());
+              B.CreateCall(F);
+              return;
+            }
+          }
+        }
+      }
+    }
+
     auto *Void = Type::getVoidTy(M.getContext());
     auto *CharPtr = Type::getInt8PtrTy(M.getContext());
     auto *Int32Ty = Type::getInt32Ty(M.getContext());
@@ -97,6 +115,7 @@ public:
       GV = cast<GlobalVariable>(M.getOrInsertGlobal("llvm.global_ctors", AT));
       GV->setLinkage(GlobalVariable::AppendingLinkage);
       GV->setInitializer(ConstantArray::get(AT, Init2));
+      llvm::errs() << "CTORS AFTER: " << *GV << "\n";
     }
   }
 
@@ -127,6 +146,8 @@ public:
     std::string CollectedCallNames;
     size_t NextCallId = 0;
     for (auto &F : M.functions()) {
+      if (!considerFunctionForEnforcement(F) || F.getName() == "__funcs_on_exit")
+        continue;
       for (auto &Bb : F) {
         for (auto &Ins : Bb) {
           if (auto *Call = dyn_cast<CallBase>(&Ins)) {
@@ -275,6 +296,9 @@ public:
       auto S1 = M.getDataLayout().getTypeSizeInBits(T1);
       auto S2 = M.getDataLayout().getTypeSizeInBits(T2);
       if (S1 != S2) return false;
+    } else if (Settings.consider_return_type) {
+      if (!Function->getFunctionType()->getReturnType()->isVoidTy())
+        return false;
     }
 
     return true;
@@ -370,6 +394,17 @@ public:
     }
   }
 
+  bool considerFunctionForEnforcement(Function &F) {
+    // some functions in musl libc should go without instrumentation, they don't expect this / use inline assembly for things.
+    // their function pointers come from readonly memory, so the resulting binary is still safe.
+    StringRef Name = F.hasName() ? F.getName() : "";
+    if (Name == "_dlstart_c" || Name == "__dls2" || Name == "__dls2b" || Name == "libc_start_init" || Name == "libc_exit_fini")
+      return false;
+    if (Settings.lld_is_shared && (Name == "do_init_fini" || Name == "libc_start_main_stage2" || Name == "__libc_exit_fini" || Name == "__funcs_on_exit"))
+      return false;
+    return true;
+  }
+
   void addEnforcement(TypeGraph &MinifiedGraph) {
     LLVMDispatcherBuilder Builder(M.getContext(), M, Graph.SymbolContainer);
 
@@ -385,6 +420,9 @@ public:
 
     // Collect all indirect calls
     for (auto &F : M.functions()) {
+      if (!considerFunctionForEnforcement(F))
+        continue;
+
       for (auto &Bb : F) {
         for (auto &Ins : Bb) {
           if (auto *Call = dyn_cast<CallBase>(&Ins)) {
@@ -499,9 +537,17 @@ public:
       // at startup
       addGlobalCtor(InitFunction);
     }
+
+    if (Settings.llvm_output) {
+      std::error_code Code;
+      raw_fd_ostream Stream(Settings.llvm_output, Code);
+      Stream << M;
+      Stream.close();
+    }
   }
 
   void reportSettings() {
+    llvm::errs() << "[Setting] TG_PROTECTED_LIBC = " << Settings.protected_libc << "\n";
     llvm::errs() << "[Setting] TG_INSTRUMENT_COLLECTCALLTARGETS = " << Settings.instrument_collectcalltargets << "\n";
     llvm::errs() << "[Setting] TG_LINKTIME_LAYERING = " << Settings.linktime_layering << "\n";
     llvm::errs() << "[Setting] TG_ENFORCE = " << Settings.enforce << "\n";
@@ -512,11 +558,23 @@ public:
     llvm::errs() << "[Setting] TG_ENFORCE_ARGNUM = " << Settings.enforce_argnum << "\n";
   }
 
+  void dumpLLVM(StringRef fname) {
+    std::error_code code;
+    raw_fd_ostream stream(fname, code);
+    stream << M;
+    stream.close();
+  }
+
+  void autodetectSettings() {
+    Settings.link_with_libc = M.getFunction("libc_start_init") != nullptr;
+  }
+
   bool run() {
     if (!Settings.enabled) {
       llvm::errs() << "[Setting] TG_ENABLED = false\n";
       return false;
     }
+    autodetectSettings();
     reportSettings();
     CheckGraphForIntegrity(Graph, M);
     TimeClock C;

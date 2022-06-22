@@ -11,6 +11,7 @@ struct TypegraphSettings {
   void setOutput(const std::string &Filename);
 
   bool enabled;
+  bool protected_libc;
 
   // Clang
   bool clang_show_graph;
@@ -18,6 +19,7 @@ struct TypegraphSettings {
   bool clang_intermediate_graph_output;
   bool clang_show_graph_all;
   bool clang_layering;
+  bool clang_export_types;
 
   // Graphtool
   bool tool_show_graph;
@@ -45,6 +47,7 @@ struct TypegraphSettings {
   // all
   // use "simple" instead of "fast" rules (for debugging)
   bool simple_rules;
+  bool consider_return_type; // when a fp has return type "void", functions also should not return anything
 
   // LLVM CFI (icfi)
   const char *icfi_output;
@@ -52,10 +55,13 @@ struct TypegraphSettings {
   const char *ifcc_output;
   // TG CFI
   const char *tgcfi_output;
+  // LLVM output
+  const char *llvm_output;
 
   // Options from lld command line
   bool lld_is_shared = false;
   std::string output_filename;
+  bool link_with_libc = false; // if libc is STATICALLY linked. auto-detected at link time
 };
 extern TypegraphSettings Settings;
 

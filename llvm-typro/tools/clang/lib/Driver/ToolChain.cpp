@@ -922,7 +922,7 @@ void ToolChain::LinkTypegraphLibrary(ArgStringList &CmdArgs) const {
   if (typegraph::Settings.instrument_collectcalltargets) {
     CmdArgs.push_back("-ltypro-instrumentation");
   }
-  if (typegraph::Settings.enforce && typegraph::Settings.dynlib_support) {
+  if (typegraph::Settings.enforce && typegraph::Settings.dynlib_support && !typegraph::Settings.protected_libc) {
     CmdArgs.push_back("-ltypro-rt");
   }
 }

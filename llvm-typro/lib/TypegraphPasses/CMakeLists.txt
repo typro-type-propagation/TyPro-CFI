@@ -4,6 +4,8 @@ add_llvm_component_library(LLVMTypegraphPasses
 		TypegraphPass.h
 		CleanupPass.cpp
 		CleanupPass.h
+		TyproLibraryFixes.cpp
+		TyproLibraryFixes.h
 
 		ADDITIONAL_HEADER_DIRS
 		#${LLVM_MAIN_INCLUDE_DIR}/llvm/ExecutionEngine/Orc

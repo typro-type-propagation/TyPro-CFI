@@ -36,11 +36,13 @@ int env_to_ulong(const char *env, unsigned long def = 0) {
 
 TypegraphSettings::TypegraphSettings() {
   enabled = env_to_bool("TG_ENABLED", true);
+  protected_libc = env_to_bool("TG_PROTECTED_LIBC");
   clang_show_graph = env_to_bool("TG_CLANG_SHOW_GRAPH");
   clang_minimize_graph = env_to_bool("TG_CLANG_MINIMIZE_GRAPH", true);
   clang_intermediate_graph_output = env_to_bool("TG_CLANG_INTERMEDIATE_GRAPH_OUTPUT");
   clang_show_graph_all = env_to_bool("TG_CLANG_SHOW_GRAPH_ALL");
   clang_layering = env_to_bool("TG_CLANG_LAYERING", false);
+  clang_export_types = env_to_bool("TG_CLANG_EXPORT_TYPES", false);
   tool_show_graph = env_to_bool("TG_TOOL_SHOW_GRAPH");
   graph_output = getenv("TG_GRAPH_OUTPUT");
   facts_output = getenv("TG_FACTS_OUTPUT");
@@ -56,9 +58,12 @@ TypegraphSettings::TypegraphSettings() {
   enforce_dispatcher_limit = env_to_int("TG_ENFORCE_DISPATCHER_LIMIT", 7);
   enforce_debug = env_to_bool("TG_ENFORCE_DEBUG");
   simple_rules = env_to_bool("TG_SIMPLE_RULES");
+  consider_return_type = env_to_bool("TG_CONSIDER_RETURN_TYPE", true);
   icfi_output = getenv("TG_ICFI_OUTPUT"); // Handled manually in LowerTypeTests
   ifcc_output = getenv("TG_IFCC_OUTPUT");
   tgcfi_output = getenv("TG_CFI_OUTPUT");
+  llvm_output = getenv("TG_LLVM_OUTPUT");
+  link_with_libc = getenv("TG_LINK_WITH_LIBC");
 }
 
 void TypegraphSettings::setOutput(const std::string &Filename) {

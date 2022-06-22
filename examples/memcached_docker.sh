@@ -33,7 +33,7 @@ cp ${SCRIPT_DIR}/memcached_configure ${SCRIPT_DIR}/memcached/memcached-${memcach
 #     --with-libevent=${SCRIPT_DIR}/memcached/libevent-${libevent_v}-stable/build
 
 ./configure --disable-coverage \
-     --with-libevent=$INSTALL_DIR
+     --with-libevent=$INSTALL_DIR $CONFIGURE_FLAGS
 
 rm -rf graph.*
 nice -5 make -j$(nproc)

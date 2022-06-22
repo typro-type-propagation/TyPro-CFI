@@ -34,7 +34,7 @@ cd ${SCRIPT_DIR}/libevent/libevent-${libevent_v}-$MODE
     --disable-shared \
     --prefix=$INSTALL_DIR \
     --disable-openssl \
-    --with-zlib=$INSTALL_DIR
+    --with-zlib=$INSTALL_DIR $CONFIGURE_FLAGS
 
 rm -rf graph.*
 nice -5 make -j$(nproc)

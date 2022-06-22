@@ -32,6 +32,9 @@ static cl::opt<bool> ComputeFunctionUsage("function-usages",
 static cl::opt<bool> ComputeEquivalences("equivalences",
                                          cl::desc("Compute equivalence classes"));
 
+static cl::opt<bool> ComputeEquivalencesLite("equivalences-lite",
+                                         cl::desc("Compute equivalence classes, but respect types"));
+
 static cl::opt<bool> CheckIntegrity("check-integrity",
                                           cl::desc("Check integrity of graph/IR"));
 
@@ -115,6 +118,9 @@ int main(int argc, char **argv) {
     if (ComputeEquivalences) {
       Graph.combineEquivalencesInline(true, false);
     }
+    if (ComputeEquivalencesLite) {
+      Graph.combineEquivalencesInline(true, false, true);
+    }
     if (Settings.facts_output) {
       Graph.computeFunctionUsesDebug(Settings.facts_output);
     }
@@ -128,6 +134,12 @@ int main(int argc, char **argv) {
     Graph.combineEquivalencesInline(false, false);
     if (Verbose) {
       Clock.report("equivalence computation");
+      llvm::outs() << "Graph: " << Graph.num_vertices() << " nodes, " << Graph.num_edges() << " edges\n";
+    }
+  } else if (ComputeEquivalencesLite) {
+    Graph.combineEquivalencesInline(false, false, true);
+    if (Verbose) {
+      Clock.report("equivalence computation (lite)");
       llvm::outs() << "Graph: " << Graph.num_vertices() << " nodes, " << Graph.num_edges() << " edges\n";
     }
   }

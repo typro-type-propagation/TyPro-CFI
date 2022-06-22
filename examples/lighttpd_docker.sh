@@ -108,7 +108,7 @@ cp $SCRIPT_DIR/lighttpd_plugin-static.h src/plugin-static.h
 ./configure --enable-static --disable-shared \
     --with-pcre=$INSTALL_DIR \
     --with-zlib=$INSTALL_DIR \
-    --without-bzip2 --without-pic --without-openssl
+    --without-bzip2 --without-pic --without-openssl $CONFIGURE_FLAGS
 
 rm -rf graph.*
 nice -5 make -j$(nproc)

@@ -242,6 +242,8 @@ public:
    * @return
    */
   bool includeType(const QualType &type) {
+    if (type.isNull())
+      return false;
     static uint64_t PtrBitSize = C->getTypeSize(C->getSizeType());
     if (type->isVoidType() || type->isFloatingType())
       return false;
@@ -384,6 +386,8 @@ public:
 
   Vertex getPointee(const TypeGraphEntry &TGE) {
     auto V = getOrInsertEntry(TGE);
+    if (V == NO_VERTEX)
+      return NO_VERTEX;
     for (auto &E: vertices[V].edges) {
       if (E.type == typegraph::POINTS_TO)
         return E.target;
@@ -547,6 +551,68 @@ public:
   }
 };
 
+namespace {
+llvm::json::Object expressionToJson(ASTContext &Context, const Expr *E) {
+  llvm::json::Object obj;
+
+  obj["location"] = E->getBeginLoc().printToString(Context.getSourceManager());
+
+  obj["type"] = E->getType().getAsString(Context.getPrintingPolicy());
+  obj["type_clean"] = cleanType(E->getType()).getAsString(Context.getPrintingPolicy());
+
+  std::string buffer;
+  llvm::raw_string_ostream OS(buffer);
+  E->printPretty(OS, nullptr, Context.getPrintingPolicy());
+  obj["c"] = OS.str();
+
+  return obj;
+}
+
+llvm::json::Object expressionToJson(ASTContext &Context, const FunctionDecl *E) {
+  llvm::json::Object obj;
+
+  obj["location"] = E->getBeginLoc().printToString(Context.getSourceManager());
+
+  obj["type"] = E->getType().getAsString(Context.getPrintingPolicy());
+
+  std::string buffer;
+  llvm::raw_string_ostream OS(buffer);
+  E->print(OS);
+  obj["c"] = OS.str();
+
+  return obj;
+}
+
+void exportTypesForIndirectCall(llvm::json::Object &ExportedTypeInfos, ASTContext &Context, Serializer &serializer, const CallExpr *CE, llvm::CallBase *call) {
+  if (!typegraph::Settings.clang_export_types)
+    return;
+  auto *arr = ExportedTypeInfos.getArray("calls");
+  if (arr == nullptr)
+    arr = (ExportedTypeInfos["calls"] = llvm::json::Array()).getAsArray();
+  // func name, expression + location + c-type, declaration + location + c-type
+  llvm::json::Object obj;
+  obj["name"] = serializer.serialize(call);
+  obj["call"] = expressionToJson(Context, CE);
+  obj["callee"] = expressionToJson(Context, CE->getCallee());
+  arr->push_back(llvm::json::Value(std::move(obj)));
+}
+
+void exportTypesForFunctionUse(llvm::json::Object &ExportedTypeInfos, ASTContext &Context, Serializer &serializer, const FunctionDecl *D,
+                               const Expr *E) {
+  if (!typegraph::Settings.clang_export_types)
+    return;
+  auto *arr = ExportedTypeInfos.getArray("functions");
+  if (arr == nullptr)
+    arr = (ExportedTypeInfos["functions"] = llvm::json::Array()).getAsArray();
+  // func name, expression + location + c-type, declaration + location + c-type
+  llvm::json::Object obj;
+  obj["name"] = serializer.serialize(D);
+  obj["expression"] = expressionToJson(Context, E);
+  obj["declaration"] = expressionToJson(Context, D);
+  arr->push_back(llvm::json::Value(std::move(obj)));
+}
+} // namespace
+
 thread_local TypeGraphBuilder *TypeGraphBuilder::CurrentInstance = nullptr;
 
 void TypeGraphBuilder::addGlobalDeclaration(GlobalDecl &GD) {
@@ -637,6 +703,13 @@ void TypeGraphBuilder::addCall(GlobalDecl &GD, const CallExpr *E,
       (functionDecl && functionDecl->getIdentifier())
           ? GetHandlingForFunction(functionDecl->getName().data())
           : DEFAULT;
+  if (Handling == RESOLVE || Handling == RESOLVE_DEEP || Handling == RESOLVE_WITH_DATA) {
+    if (typegraph::Settings.protected_libc)
+      Handling = DEFAULT;
+  } else if (Handling == RESOLVE_DEEP_ALWAYS) {
+    Handling = RESOLVE_DEEP;
+  }
+
   if (Handling == IGNORE) {
     return;
   }
@@ -684,6 +757,25 @@ void TypeGraphBuilder::addCall(GlobalDecl &GD, const CallExpr *E,
 
   for (const auto *arg : E->arguments()) {
     ignoreTheseExpressions.erase(arg);
+
+    if (Handling == IGNORE_BUT_FILE) {
+      /*
+      llvm::errs() << arg->getType().getAsString() << " => ";
+      llvm::errs() << arg->getType()->isPointerType();
+      llvm::errs() << (arg->getType()->isPointerType() && arg->getType()->getPointeeType()->isRecordType());
+      llvm::errs() << (arg->getType()->isPointerType() && arg->getType()->getPointeeType()->isRecordType() && arg->getType()->getPointeeType()->getAsRecordDecl()->getName() == "_IO_FILE");
+      if (arg->getType()->isPointerType() && arg->getType()->getPointeeType()->isRecordType())
+        llvm::errs() << " '" << arg->getType()->getPointeeType()->getAsRecordDecl()->getName() << "'\n";
+      */
+      if (arg->getType()->isPointerType()
+          && arg->getType()->getPointeeType()->isRecordType()
+          && arg->getType()->getPointeeType()->getAsRecordDecl()->getName() == "_IO_FILE") {
+        // keep it
+      } else {
+        continue;
+      }
+    }
+
     auto src = getSourceTypeOfExpression(GD, arg, false);
     auto dstType = arg->getType();
     if (CalleeFunctionType && argnum < CalleeFunctionType->getNumParams()) {
@@ -768,14 +860,19 @@ void TypeGraphBuilder::addCall(GlobalDecl &GD, const CallExpr *E,
   // add casts for return value
   auto returnType = cleanType(E->getType());
   if (!returnType->isVoidType() && !isRemoved) {
-    if (!functionDecl) {
-      auto returnVertex = graph->getOrInsertEntry(TypeGraphEntry(returnType, context));
-      if (returnVertex != NO_VERTEX)
-        graph->vertices[returnVertex].argumentReturnTypes.insert(graph->SymbolContainer->get("return#value"));
+    // we ignore the returntype for IGNORE_BUT_FILE functions - unless it's FILE*
+    if (Handling != IGNORE_BUT_FILE || (returnType->isPointerType()
+                                        && returnType->getPointeeType()->isRecordType()
+                                        && returnType->getPointeeType()->getAsRecordDecl()->getName() == "_IO_FILE")) {
+      if (!functionDecl) {
+        auto returnVertex = graph->getOrInsertEntry(TypeGraphEntry(returnType, context));
+        if (returnVertex != NO_VERTEX)
+          graph->vertices[returnVertex].argumentReturnTypes.insert(graph->SymbolContainer->get("return#value"));
+      }
+      if (graph->addGraphEdge(TypeGraphEntry(returnType, context), TypeGraphEntry(returnType, GD),
+                              Edge(typegraph::EdgeType::CAST_SIMPLE)))
+        newEdges++;
     }
-    if (graph->addGraphEdge(TypeGraphEntry(returnType, context), TypeGraphEntry(returnType, GD),
-                            Edge(typegraph::EdgeType::CAST_SIMPLE)))
-      newEdges++;
   }
 
   // add to call graph
@@ -790,6 +887,8 @@ void TypeGraphBuilder::addCall(GlobalDecl &GD, const CallExpr *E,
         graph->getOrInsertEntry(calleeType);
     auto num = nextCallNumber[callinst->getFunction()->getName().str()]++;
     uniqueCallNumber[callinst] = num;
+    Serializer serializer(CGM.getModule(), CGM, uniqueCallNumber);
+    exportTypesForIndirectCall(ExportedTypeInfos, Context, serializer, E, callinst);
   }
 
   // Catch implicit declarations
@@ -925,9 +1024,11 @@ void TypeGraphBuilder::addBuiltinExpr(GlobalDecl &GD, unsigned BuiltinID, const 
   case Builtin::BI__builtin___memmove_chk:
   case Builtin::BImemmove:
   case Builtin::BI__builtin_memmove: {
-    auto src = getSourceTypeOfExpression(GD, E->getArg(1), false);
-    auto dst = getSourceTypeOfExpression(GD, E->getArg(0), false);
-    graph->addGraphEdge(graph->getPointee(src), graph->getPointee(dst), typegraph::EdgeType::CAST_SIMPLE);
+    if (E->getNumArgs() >= 2) {
+      auto src = getSourceTypeOfExpression(GD, E->getArg(1), false);
+      auto dst = getSourceTypeOfExpression(GD, E->getArg(0), false);
+      graph->addGraphEdge(graph->getPointee(src), graph->getPointee(dst), typegraph::EdgeType::CAST_SIMPLE);
+    }
     break;
   }
   }
@@ -979,6 +1080,8 @@ void TypeGraphBuilder::addFunctionRefUse(GlobalDecl &GD, const FunctionDecl *D,
   while (D->getPreviousDecl())
     D = D->getPreviousDecl();
   graph->usedFunctions.insert(D);
+  Serializer serializer(CGM.getModule(), CGM, uniqueCallNumber);
+  exportTypesForFunctionUse(ExportedTypeInfos, Context, serializer, D, E);
 }
 
 TypeGraphEntry
@@ -1071,6 +1174,18 @@ TypeGraphBuilder::getSourceTypeOfExpression(const GlobalDecl &GD, const Expr *E,
     return getSourceTypeOfExpression(GD, PE->getSubExpr(), ignoreReevaluation);
   }
 
+  // handle bitwise operations (which invalidate pointers)
+  if (const auto *Op = dyn_cast_or_null<BinaryOperator>(E)) {
+    if (Op->getOpcode() == BO_Or || Op->getOpcode() == BO_And || Op->getOpcode() == BO_Xor) {
+      // TODO here
+      ignoreTheseExpressions.insert(Op);
+      ignoreTheseExpressions.insert(Op->getLHS());
+      ignoreTheseExpressions.insert(Op->getRHS());
+      // E->dump(llvm::errs() << "IGNORE in " << cast<NamedDecl>(GD.getDecl())->getName());
+      return TypeGraphEntry(QualType(), GD);
+    }
+  }
+
   auto Type = E->getType();
 
   if (auto *DE = dyn_cast_or_null<DeclRefExpr>(E)) {
@@ -1161,6 +1276,22 @@ void collectNodesForGlobalDeclInterface(TypeGraphRepr *graph,
 } // namespace
 
 void TypeGraphBuilder::Release(llvm::Module &M, const std::string &OutputFile) {
+  // Export typing information as JSON
+  if (typegraph::Settings.clang_export_types && !OutputFile.empty() && OutputFile != "-") {
+    auto fname = startsWith(OutputFile, "-o ")
+                     ? OutputFile.substr(3) + ".types.json"
+                     : OutputFile + ".types.json";
+    std::error_code EC;
+    llvm::raw_fd_ostream File(fname, EC);
+    File << llvm::json::Value(std::move(ExportedTypeInfos)) << "\n";
+  }
+
+  // FIX BUG FROM MUSL LIBC
+  auto *F = M.getFunction("__dls2");
+  if (F) {
+    F->setVisibility(llvm::GlobalValue::DefaultVisibility);
+  }
+
   if (!ignoreTheseExpressions.empty()) {
     // llvm::errs() << "[WARNING] ignoreTheseExpressions not empty! Size = " << ignoreTheseExpressions.size() << "\n";
     /*
@@ -1220,6 +1351,9 @@ void TypeGraphBuilder::Release(llvm::Module &M, const std::string &OutputFile) {
     if (!GV) {
       GV = M.getGlobalVariable(*symbol);
     }
+    if (!GV) {
+      GV = M.getNamedAlias(*symbol);
+    }
     auto IsVisible = GV && !GV->hasLocalLinkage();
     if (const auto *FD = dyn_cast<FunctionDecl>(GD.getDecl())) {
       IsVisible &= FD->isExternallyVisible();
@@ -1247,6 +1381,14 @@ void TypeGraphBuilder::Release(llvm::Module &M, const std::string &OutputFile) {
       }
       // might update symbolic types in graph (arg#1 etc)
       collectNodesForGlobalDeclInterface(graph.get(), GD, Interface.Types, Interface.IsDefined);
+      // if this is an alias to another function, we also add our interface description to the other symbol
+      // during later computation, they'll get merged
+      if (auto *A = dyn_cast<llvm::GlobalAlias>(GV)) {
+        if (auto *F2 = dyn_cast<llvm::Function>(A->getAliasee())) {
+          const std::string *symbol2 = TG.SymbolContainer->get(F2->getName());
+          TG.Interfaces[symbol2].push_back(Interface);
+        }
+      }
       TG.Interfaces[symbol].push_back(std::move(Interface));
     }
   }

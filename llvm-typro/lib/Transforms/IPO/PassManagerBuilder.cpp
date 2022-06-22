@@ -14,6 +14,7 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "../../TypegraphPasses/CleanupPass.h"
 #include "../../TypegraphPasses/TypegraphPass.h"
+#include "../../TypegraphPasses/TyproLibraryFixes.h"
 #include "llvm-c/Transforms/PassManagerBuilder.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -1078,10 +1079,12 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   // PATCH insert patch here
   PM.add(createGlobalDCEPass());
   PM.add(createVerifierPass());
+  PM.add(new TyproLibraryFixesLegacyPass(false));
   if (typegraph::Settings.icfi_output || typegraph::Settings.ifcc_output) {
     PM.add(new RelatedWorkLegacyPass());
   }
   PM.add(new TypeGraphLegacyPass());
+  PM.add(new TyproLibraryFixesLegacyPass(true));
   PM.add(createVerifierPass());
 
   addExtensionsToPM(EP_FullLinkTimeOptimizationEarly, PM);

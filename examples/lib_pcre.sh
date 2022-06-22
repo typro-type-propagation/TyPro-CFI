@@ -26,7 +26,7 @@ if [ ! -d pcre-${pcre_v}-$MODE ]; then
     mv pcre-${pcre_v} pcre-${pcre_v}-$MODE
 fi
 cd pcre-${pcre_v}-$MODE
-./configure --enable-static --disable-shared --prefix="$INSTALL_DIR" --disable-cpp
+./configure --enable-static --disable-shared --prefix="$INSTALL_DIR" --disable-cpp $CONFIGURE_FLAGS
 make -j$(nproc)
 make install
 cd ..

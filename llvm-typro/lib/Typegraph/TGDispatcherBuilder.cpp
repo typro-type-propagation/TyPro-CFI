@@ -7,6 +7,7 @@
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/Typegraph/TypegraphSettings.h>
 #endif
+
 #include <queue>
 
 using namespace llvm;
@@ -56,7 +57,7 @@ void LLVMDispatcherBuilder::initialize() {
 
 void LLVMDispatcherBuilder::collectCluster(std::set<DFunction *> &Cluster, std::set<DResolvePoint *> &RPs) {
   std::queue<DFunction *> Q;
-  for (auto *F : Cluster) {
+  for (auto *F: Cluster) {
     F->InCluster = true;
     Q.push(F);
   }
@@ -64,11 +65,11 @@ void LLVMDispatcherBuilder::collectCluster(std::set<DFunction *> &Cluster, std::
   while (!Q.empty()) {
     auto *F = Q.front();
     Q.pop();
-    for (auto &RP : ResolvePoints) {
+    for (auto &RP: ResolvePoints) {
       if (std::find(RP.Targets.begin(), RP.Targets.end(), F) != RP.Targets.end()) {
         if (RPs.insert(&RP).second) {
           // functions F2 belong into same cluster than F
-          for (auto *F2 : RP.Targets) {
+          for (auto *F2: RP.Targets) {
             if (F2->InCluster || F2->Removed || !F2->Ref)
               continue;
             Cluster.insert(F2);
@@ -86,12 +87,12 @@ long LLVMDispatcherBuilder::assignClusterIDs(std::set<DFunction *> &Cluster, std
   if (Cluster.size() > 5) {
     DResolvePoint *Biggest =
         nullptr; // the biggest set of idents that is: subset of cluster, not equal to cluster, size >4.
-    for (auto &RP : RPs) {
+    for (auto &RP: RPs) {
       if (RP->Targets.size() <= 4 || RP->Targets.size() >= Cluster.size() ||
           (Biggest && RP->Targets.size() <= Biggest->Targets.size()))
         continue;
       bool AllIdentsInCluster = true;
-      for (auto *F : RP->Targets) {
+      for (auto *F: RP->Targets) {
         if (Cluster.find(F) == Cluster.end()) {
           AllIdentsInCluster = false;
           break;
@@ -114,7 +115,7 @@ long LLVMDispatcherBuilder::assignClusterIDs(std::set<DFunction *> &Cluster, std
   }
 
   // otherwise - screw it, doesn't matter.
-  for (auto &F : Cluster) {
+  for (auto &F: Cluster) {
     F->ID = MinNumber++;
   }
   return MinNumber;
@@ -124,7 +125,7 @@ void LLVMDispatcherBuilder::assignOptimalIDs() {
   // Cluster 1: external functions
   std::set<DFunction *> ExternalCluster;
   std::set<DResolvePoint *> ExternalRPs;
-  for (auto &It : Functions) {
+  for (auto &It: Functions) {
     if (It.second->Removed || !It.second->Ref || It.second->ID != NOID || It.second->InCluster)
       continue;
     if (It.second->Leaking) {
@@ -133,7 +134,7 @@ void LLVMDispatcherBuilder::assignOptimalIDs() {
   }
   for (auto &RP: ResolvePoints) {
     if (RP.IsExternal) {
-      for (auto *F : RP.Targets) {
+      for (auto *F: RP.Targets) {
         if (F->Removed || !F->Ref || F->ID != NOID || F->InCluster)
           continue;
         ExternalCluster.insert(F);
@@ -145,7 +146,7 @@ void LLVMDispatcherBuilder::assignOptimalIDs() {
 
   // Other clusters (pure internal)
   long Max = NextId - 1;
-  for (auto &It : Functions) {
+  for (auto &It: Functions) {
     if (It.second->Removed || !It.second->Ref || It.second->ID != NOID || It.second->InCluster)
       continue;
     std::set<DFunction *> Cluster;
@@ -159,7 +160,7 @@ void LLVMDispatcherBuilder::assignOptimalIDs() {
 }
 
 void LLVMDispatcherBuilder::assignMissingIDs() {
-  for (auto &It : Functions) {
+  for (auto &It: Functions) {
     if (It.second->ID == NOID && !It.second->Removed && It.second->Ref) {
       It.second->ID = NextId++;
     }
@@ -254,7 +255,7 @@ template <class T> static Constant *replaceValue(LLVMDispatcherBuilder *Builder,
 bool LLVMDispatcherBuilder::typesafeReplaceAllUsesWith(User *OldValue, Constant *NewValue) {
   std::vector<User *> Users(OldValue->user_begin(), OldValue->user_end());
   bool Result = true;
-  for (auto *User : Users) {
+  for (auto *User: Users) {
     if (!isa<Constant>(User)) {
       User->replaceUsesOfWith(OldValue, NewValue);
     } else if (isa<BitCastOperator>(User) || isa<PtrToIntOperator>(User)) {
@@ -302,6 +303,9 @@ bool LLVMDispatcherBuilder::typesafeReplaceAllUsesWith(User *OldValue, Constant 
  */
 bool LLVMDispatcherBuilder::typesafeReplaceUseWith(User *User, Value *Old, Constant *New) {
   if (!isa<Constant>(User)) {
+    if (New->getType() != Old->getType()) {
+      New = ConstantExpr::getBitCast(New, Old->getType());
+    }
     bool Found = false;
     for (unsigned I = 0; I < User->getNumOperands(); I++) {
       if (User->getOperand(I) == Old) {
@@ -320,7 +324,7 @@ bool LLVMDispatcherBuilder::typesafeReplaceUseWith(User *User, Value *Old, Const
     // Check for special case: call (bitcast f)
     bool HasDirectCallUses = false;
     bool HasNonDirectCallUses = false;
-    for (auto *User2 : User->users()) {
+    for (auto *User2: User->users()) {
       if (auto *C = dyn_cast<CallBase>(User2)) {
         if (C->getCalledValue() == User) {
           HasDirectCallUses = true;
@@ -332,7 +336,7 @@ bool LLVMDispatcherBuilder::typesafeReplaceUseWith(User *User, Value *Old, Const
 
     if (HasDirectCallUses && HasNonDirectCallUses) {
       // replace every use except direct calls
-      for (auto *User2 : User->users()) {
+      for (auto *User2: User->users()) {
         if (auto *C = dyn_cast<CallBase>(User2)) {
           if (C->getCalledValue() == User) {
             continue;
@@ -368,13 +372,54 @@ bool LLVMDispatcherBuilder::typesafeReplaceUseWith(User *User, Value *Old, Const
     assert(false);
     return false;
   }
+  if (auto *A = dyn_cast<GlobalAlias>(User)) {
+    if (A->getAliasee() == Old) {
+      A->setAliasee(New);
+      return true;
+    }
+    llvm::errs() << "[WARNING] cannot replace stuff in alias: " << *User << "    (" << *Old << ")\n";
+    assert(false);
+    return false;
+  }
   llvm::errs() << "Can't replace things: " << *User << " | " << *Old << " | " << *New << "\n";
   assert(false);
   return false;
 }
 
+namespace {
+bool canReplaceUseLibcSafe(User *User) {
+  if (auto *GV = dyn_cast<GlobalVariable>(User)) {
+    return GV->getName() != "llvm.global_ctors" && GV->getName() != "llvm.global_dtors" && GV->getName() != "llvm.used";
+  }
+  if (auto *C = dyn_cast<Constant>(User)) {
+    for (auto *User2: C->users()) {
+      if (!canReplaceUseLibcSafe(User2))
+        return false;
+    }
+  }
+  if (auto *Ins = dyn_cast<Instruction>(User)) {
+    if (Ins->getFunction()->hasName() && Ins->getFunction()->getName() == "__libc_sigaction")
+      return false;
+  }
+  if (Settings.link_with_libc)
+    return true;
+  if (auto *A = dyn_cast<GlobalAlias>(User)) {
+    if (A->getName() == "_init" || A->getName() == "_fini")
+      return false;
+  }
+  if (auto *C = dyn_cast<CallInst>(User)) {
+    if (C->getCalledFunction()) {
+      auto Name = C->getCalledFunction()->getName();
+      if (Name == "__cxa_atexit" || Name == "__libc_start_main")
+        return false;
+    }
+  }
+  return true;
+}
+} // namespace
+
 void LLVMDispatcherBuilder::replaceFunctionsWithIDs() {
-  for (auto &It : Functions) {
+  for (auto &It: Functions) {
     auto *F = It.second->Ref;
     if (It.second->Removed || !F)
       continue;
@@ -383,18 +428,24 @@ void LLVMDispatcherBuilder::replaceFunctionsWithIDs() {
     auto *C = ConstantExpr::getIntToPtr(ConstantInt::get(IntPtr, It.second->ID), F->getType());
 
     // Functions never used in direct calls can be replaced by LLVM (by far more efficient than our method)
-    if (canReplaceAllFunctionUsages(It.second.get())) {
+    if (canReplaceAllFunctionUsages(It.second.get()->Ref)) {
       F->replaceAllUsesWith(C);
       continue;
     }
 
     // other functions must have every use replaced manually
-    for (auto *User : getFunctionUsages(It.second.get())) {
+    std::vector<std::pair<User *, Value *>> Usages;
+    collectFunctionUsages(Usages, It.second.get()->Ref);
+    for (auto &It2: Usages) {
+      auto *User = It2.first;
+      auto *Old = It2.second;
+      if (!canReplaceUseLibcSafe(User))
+        continue;
       // Replace function F with ID in User:
       // llvm::errs() << "User [before]    " << F->getName() << "     " << *User << "\n";
-      if (!typesafeReplaceUseWith(User, F, C)) {
-        llvm::errs() << "[WARN] Function use operand not found! " << *User << "\n";
-        assert(false);
+      if (!typesafeReplaceUseWith(User, Old, C)) {
+        llvm::errs() << "[WARN] Function use operand not found! " << *User << " old=" << *Old << "\n";
+        //assert(false);
       }
       // llvm::errs() << "User [after]     " << F->getName() << "     " << *User << "\n";
     }
@@ -513,10 +564,12 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
       }
     } else {
       // build a switch case
+      auto *Invoke = llvm::dyn_cast_or_null<InvokeInst>(RP.CallInst);
       auto *FirstBB = RP.CallInst->getParent();
-      auto *SecondBB = FirstBB->splitBasicBlock(RP.CallInst);
+      auto *SecondBB = Invoke ? Invoke->getNormalDest() : FirstBB->splitBasicBlock(RP.CallInst);
       auto *DefaultBB = BasicBlock::Create(Context, "", F);
-      FirstBB->getTerminator()->eraseFromParent();
+      if (!Invoke)
+        FirstBB->getTerminator()->eraseFromParent();
       auto CaseNumber = RP.Targets.size() + (RP.IsExternal ? 1 : 0);
       IRBuilder<> Builder(FirstBB);
       auto *FunctionID = Builder.CreatePtrToInt(RP.CallInst->getCalledValue(), IntPtr);
@@ -529,8 +582,10 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
       }
 
       // create a case for each function
-      for (auto *Target : RP.Targets) {
+      std::vector<BasicBlock *> newBasicBlocks;
+      for (auto *Target: RP.Targets) {
         auto *BB = BasicBlock::Create(Context, "", F);
+        auto *OutBB = BB;
         Builder.SetInsertPoint(BB);
         // Cast arguments if necessary
         std::vector<Value *> Arguments;
@@ -540,7 +595,8 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
             auto *Arg = castTo(Builder, RP.CallInst->getArgOperand(I), FT->getParamType(I));
             if (!Arg) {
               llvm::errs() << "In call " << *RP.CallInst << " / function type " << *FT << "\n";
-              llvm::errs() << "Can't cast argument " << I << ": " << *RP.CallInst->getArgOperand(I) << " to type " << *FT->getParamType(I) << "\n";
+              llvm::errs() << "Can't cast argument " << I << ": " << *RP.CallInst->getArgOperand(I) << " to type "
+                           << *FT->getParamType(I) << "\n";
             }
             assert(Arg);
             Arguments.push_back(Arg);
@@ -550,33 +606,49 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
         }
 
         // Build a direct call
-        auto *Call = Builder.CreateCall(Target->Ref, Arguments);
+        auto *Call = Invoke
+                         ? (llvm::CallBase *) Builder.CreateInvoke(Target->Ref, SecondBB, Invoke->getUnwindDest(), Arguments)
+                         : (llvm::CallBase *) Builder.CreateCall(Target->Ref, Arguments);
         Call->setCallingConv(RP.Targets[0]->Ref->getCallingConv());
         Call->setDebugLoc(RP.CallInst->getDebugLoc());
-        if (RP.Hash == nullptr) {
-          Call->setTailCall(true);
-        } else {
-          Call->setTailCall(RP.CallInst->isTailCall());
+        if (RP.CallInst->isTailCall()) {
+          if (auto *Call2 = dyn_cast<CallInst>(Call)) {
+            Call2->setTailCall(true);
+          }
         }
         if (Phi) {
-          auto *CastedCall = castTo(Builder, Call, Phi->getType());
-          if (!CastedCall) {
-            llvm::errs() << "PHI type error: Can't cast " << *Call->getType() << " to " << *Phi->getType() << "\n";
-            llvm::errs() << *RP.CallInst << "\n" << *Call << "\n";
+          if (!Invoke) {
+            auto *CastedCall = castTo(Builder, Call, Phi->getType());
+            if (!CastedCall) {
+              llvm::errs() << "PHI type error: Can't cast " << *Call->getType() << " to " << *Phi->getType() << "\n";
+              llvm::errs() << *RP.CallInst << "\n" << *Call << "\n";
+            }
+            assert(CastedCall);
+            Phi->addIncoming(CastedCall, BB);
+          } else if (Call->getType() == Phi->getType()) {
+            Phi->addIncoming(Call, BB);
+          } else {
+            // We need a new BB (just to cast the result of a successful invoke)!
+            OutBB = BasicBlock::Create(Context, "", F);
+            cast<InvokeInst>(Call)->setNormalDest(OutBB);
+            Builder.SetInsertPoint(OutBB);
+            Phi->addIncoming(castTo(Builder, Call, Phi->getType()), OutBB);
+            Builder.CreateBr(SecondBB);
           }
-          assert(CastedCall);
-          Phi->addIncoming(CastedCall, BB);
         }
-        Builder.CreateBr(SecondBB);
+        if (!Invoke)
+          Builder.CreateBr(SecondBB);
         // Add to outer switch-case struct
         Switch->addCase(ConstantInt::get(IntPtr, Target->ID), BB);
+        newBasicBlocks.push_back(OutBB);
       }
 
       // create the default case handler
       Builder.SetInsertPoint(DefaultBB);
       if (RP.IsExternal) {
         // llvm::errs() << "TYPE " << "__tg_dispatcher_" + *RP.CallName << " = " << *RP.CallInst->getCalledValue()->getType() << "\n";
-        auto *GVPtr = RP.CallInst->getModule()->getOrInsertGlobal("__tg_dyn_dispatcher_" + *RP.CallName, RP.CallInst->getCalledValue()->getType());
+        auto *GVPtr = RP.CallInst->getModule()->getOrInsertGlobal("__tg_dyn_dispatcher_" + *RP.CallName,
+                                                                  RP.CallInst->getCalledValue()->getType());
         if (auto *GV = dyn_cast<GlobalVariable>(GVPtr)) {
           // GV->setVisibility(llvm::GlobalValue::HiddenVisibility);
           GV->setLinkage(llvm::GlobalValue::PrivateLinkage);
@@ -586,7 +658,7 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
         }
         auto *Dispatcher = Builder.CreateLoad(GVPtr);
         // move call target to r11 (x64) / x16(aarch64)
-        const char* Constraints;
+        const char *Constraints;
         auto TT = StringRef(M.getTargetTriple());
         if (TT.startswith("x86_64-")) {
           Constraints = "{r11},~{dirflag},~{fpsr},~{flags}";
@@ -598,8 +670,9 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
           llvm::report_fatal_error("Unsupported target architecture for TyPro dynamic linking!");
         }
         auto *Asm =
-            InlineAsm::get(FunctionType::get(Type::getVoidTy(Context), RP.CallInst->getCalledValue()->getType(), false),
-                           "", Constraints, true);
+            InlineAsm::get(
+                FunctionType::get(Type::getVoidTy(Context), RP.CallInst->getCalledValue()->getType(), false),
+                "", Constraints, true);
         Builder.CreateCall(Asm, {RP.CallInst->getCalledValue()});
         std::vector<Value *> Arguments(RP.CallInst->arg_begin(), RP.CallInst->arg_end());
         auto *Call = Builder.CreateCall(Dispatcher, Arguments);
@@ -608,10 +681,37 @@ void LLVMDispatcherBuilder::generateCodeForResolvePoint(DResolvePoint &RP) {
           Phi->addIncoming(castTo(Builder, Call, Phi->getType()), DefaultBB);
         }
         Builder.CreateBr(SecondBB);
+        newBasicBlocks.push_back(DefaultBB);
       } else {
         // not external - terminate when no valid function ID is found
         generateErrorCase(Builder, RP, FunctionID);
       }
+
+      // In case of Invoke: patch PHIs in default dest block (which now has different predecessors)
+      if (Invoke) {
+        for (auto &Ins: *SecondBB) {
+          auto *SecondPhi = dyn_cast<PHINode>(&Ins);
+          if (!SecondPhi) break;
+          if (SecondPhi == Phi) continue;
+
+          auto *V = SecondPhi->getIncomingValueForBlock(FirstBB);
+          if (V == Phi) {
+            // case 1: phi uses call return value => "our" phi => inline our new phi
+            for (unsigned int BlockIndex = 0; BlockIndex < Phi->getNumIncomingValues(); BlockIndex++) {
+              SecondPhi->addIncoming(Phi->getIncomingValue(BlockIndex), Phi->getIncomingBlock(BlockIndex));
+            }
+          } else {
+            // case 2: phi uses other value => create new cases for each BB, remove old one
+            for (auto *BB: newBasicBlocks) {
+              SecondPhi->addIncoming(V, BB);
+            }
+          }
+          SecondPhi->removeIncomingValue(FirstBB);
+        }
+        if (Phi && Phi->user_empty())
+          Phi->eraseFromParent();
+      }
+
       // remove original call
       if (!RP.CallInst->user_empty()) {
         // This should only happen if a call has zero targets and its return value is actually used
@@ -673,11 +773,11 @@ llvm::Value * LLVMDispatcherBuilder::generateBackTranslation(DResolvePoint &RP, 
   Builder.SetInsertPoint(ConstantFPBB);
   Phi->addIncoming(OldValue, ConstantFPBB);
   Builder.CreateBr(SecondBB);
-  for (long ID = 0; ID < (long)Settings.enforce_min_id; ID++) {
+  for (long ID = 0; ID < (long) Settings.enforce_min_id; ID++) {
     Switch->addCase(ConstantInt::get(IntPtr, ID), ConstantFPBB);
   }
   // create a case for each function
-  for (auto *Target : RP.Targets) {
+  for (auto *Target: RP.Targets) {
     auto *BB = BasicBlock::Create(Context, "", F);
     Builder.SetInsertPoint(BB);
     if (Target->Ref) {
@@ -690,14 +790,24 @@ llvm::Value * LLVMDispatcherBuilder::generateBackTranslation(DResolvePoint &RP, 
     Switch->addCase(ConstantInt::get(IntPtr, Target->ID), BB);
   }
 
-  // create the default case handler - terminate when no valid function ID is found
+  // create the default case handler - terminate when no valid function ID is found (or call to libtypro-rt)
   Builder.SetInsertPoint(DefaultBB);
-  generateErrorCase(Builder, RP, FunctionID);
+  if (RP.IsExternal) {
+    auto *I8Ptr = Type::getInt8PtrTy(RP.CallInst->getContext());
+    auto Resolver = RP.CallInst->getModule()->getOrInsertFunction("__tg_resolve_symbol", FunctionType::get(I8Ptr, {I8Ptr, IntPtr}, false));
+    auto *Name = Builder.CreateGlobalStringPtr(*RP.CallName);
+    auto *ResolvedPtr = Builder.CreateCall(Resolver, {Name, FunctionID});
+    Phi->addIncoming(castTo(Builder, ResolvedPtr, Phi->getType()), DefaultBB);
+    Builder.CreateBr(SecondBB);
+  } else {
+    // not external - terminate when no valid function ID is found
+    generateErrorCase(Builder, RP, FunctionID);
+  }
 
   return Phi;
 }
 
-void LLVMDispatcherBuilder::generateErrorCase(IRBuilder<> &Builder, DResolvePoint &RP, Value* FunctionID) {
+void LLVMDispatcherBuilder::generateErrorCase(IRBuilder<> &Builder, DResolvePoint &RP, Value *FunctionID) {
   if (Settings.enforce_debug) {
     auto *PtrType = Type::getInt8PtrTy(Context);
     auto *Stderr = M.getOrInsertGlobal("stderr", PtrType);
@@ -717,13 +827,26 @@ void LLVMDispatcherBuilder::generateErrorCase(IRBuilder<> &Builder, DResolvePoin
 }
 
 void LLVMDispatcherBuilder::printFunctionIDs() {
-  for (auto &It : Functions) {
+  for (auto &It: Functions) {
     if (It.second->Removed || !It.second->Ref)
       continue;
     llvm::errs() << " - [ID " << It.second->ID << "] " << It.second->Ref->getName();
     if (!It.second->Leaking)
       llvm::errs() << " (internal)";
     llvm::errs() << "\n";
+  }
+}
+
+void LLVMDispatcherBuilder::writeFunctionIDsToFile() {
+  std::error_code EC;
+  llvm::raw_fd_ostream File(Settings.output_filename + "-ids.txt", EC);
+  for (auto &It: Functions) {
+    if (It.second->Removed || !It.second->Ref)
+      continue;
+    File << " - [ID " << It.second->ID << "] " << It.second->Ref->getName();
+    if (!It.second->Leaking)
+      File << " (internal)";
+    File << "\n";
   }
 }
 
@@ -776,7 +899,7 @@ void LLVMDispatcherBuilder::generateCodeForDynamicSymbols() {
 
   auto *VoidPtr = Type::getInt8PtrTy(M.getContext());
   auto DlsymToId = M.getOrInsertFunction("__tg_dlsym_to_id", VoidPtr, VoidPtr, VoidPtr);
-  for (auto &It : DynamicSymbolCalls) {
+  for (auto &It: DynamicSymbolCalls) {
     // make global pointer storage
     auto *GVPtr = M.getOrInsertGlobal("__tg_dlsym_" + *It.second, VoidPtr);
     if (auto *GV = dyn_cast<GlobalVariable>(GVPtr)) {
@@ -798,39 +921,49 @@ void LLVMDispatcherBuilder::generateCodeForDynamicSymbols() {
 
     // Get potential targets for dynamic symbol resolvers (symbol names)
     getPotentialStringValues(Call->getArgOperand(1), DynamicSymbolTargets[It.second]);
-    llvm::errs() << "SET from getPotentialStringValues for " << *It.second <<":\n";
+    llvm::errs() << "SET from getPotentialStringValues for " << *It.second << ":\n";
     for (auto S: DynamicSymbolTargets[It.second]) {
       llvm::errs() << " - \'" << S << "\'\n";
     }
   }
 }
 
-std::vector<llvm::User *> LLVMDispatcherBuilder::getFunctionUsages(DFunction *F) {
-  std::vector<User *> Usages;
-  for (auto *User : F->Ref->users()) {
+void LLVMDispatcherBuilder::collectFunctionUsages(std::vector<std::pair<llvm::User *, llvm::Value *>> &Usages, llvm::Value *F) {
+  for (auto *User: F->users()) {
     if (auto *C = dyn_cast<CallBase>(User)) {
-      if (C->getCalledFunction() == F->Ref)
+      if (C->getCalledValue() == F)
         continue;
     }
-    Usages.push_back(User);
+    if (auto *A = dyn_cast<GlobalAlias>(User)) {
+      collectFunctionUsages(Usages, A);
+      continue;
+    }
+    if (auto *C = dyn_cast<BitCastOperator>(User)) {
+      if (!canReplaceAllFunctionUsages(C)) {
+        collectFunctionUsages(Usages, C);
+        continue;
+      }
+    }
+    Usages.push_back({User, F});
   }
-  return Usages;
 }
 
-bool LLVMDispatcherBuilder::canReplaceAllFunctionUsages(DFunction *F) {
-  for (auto *User : F->Ref->users()) {
+bool LLVMDispatcherBuilder::canReplaceAllFunctionUsages(Value *V) {
+  for (auto *User: V->users()) {
     if (auto *C = dyn_cast<CallBase>(User)) {
-      if (C->getCalledFunction() == F->Ref)
+      if (C->getCalledValue() == V)
         return false;
     }
     // Special case: call (bitcast f, ...)
     if (auto *BCOp = dyn_cast<BitCastOperator>(User)) {
-      for (auto *User2 : BCOp->users()) {
-        if (auto *C = dyn_cast<CallBase>(User2)) {
-          if (C->getCalledValue() == BCOp)
-            return false;
-        }
-      }
+      if (!canReplaceAllFunctionUsages(BCOp))
+        return false;
+    }
+    if (!canReplaceUseLibcSafe(User))
+      return false;
+    // an alias might be turned into a GOT symbol, so we can't replace the use in it
+    if (auto *A = dyn_cast<GlobalAlias>(User)) {
+      return false;
     }
   }
   return true;

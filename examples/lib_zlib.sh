@@ -27,7 +27,7 @@ fi
 
 cd zlib-${zlib_v}-$MODE
 
-./configure --prefix="$INSTALL_DIR" --static
+./configure --prefix="$INSTALL_DIR" --static $CONFIGURE_FLAGS
 make -j$(nproc)
 make install
 

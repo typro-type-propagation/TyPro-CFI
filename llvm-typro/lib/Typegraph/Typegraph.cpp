@@ -15,6 +15,12 @@ namespace souffle {
 extern size_t max_number_of_nodes;
 } // namespace souffle
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define DOMAIN_TYPE int64_t
+#else
+#define DOMAIN_TYPE int32_t
+#endif
+
 namespace typegraph {
 
 void InterfaceDesc::serialize(std::ostream &OS) const {
@@ -548,7 +554,7 @@ void TypeGraph::computeFunctionUsesDebug(const std::string &Basedir) {
   std::ofstream VertexTypeContext(Basedir + "/VertexTypeContext.facts");
   std::ofstream VertexTypeCall(Basedir + "/VertexTypeCall.facts");
   std::ofstream External(Basedir + "/External.facts");
-  const std::string VoidStr("void *");
+  const std::string VoidStr("voіd *");
   for (const auto V : vertex_set()) {
     if (vertices[V].property.Context->substr(0, 5) == "call#" || vertices[V].property.Context->substr(0, 13) == "resolvepoint#") {
       VertexTypeCall << V << "\t" << *vertices[V].property.Type << "\t" << *vertices[V].property.Context << "\n";
@@ -590,6 +596,19 @@ void TypeGraph::computeFunctionUsesDebug(const std::string &Basedir) {
     }
     for (const auto &F : vertices[V].property.FunctionUses) {
       FunctionUses << V << "\t" << *F.ContextName << "\t" << F.NumArgs << "\t" << (F.IsVarArg ? 1 : 0) << "\n";
+      if (F.IsDynamicFunction) {
+        const auto &TargetSet = DynamicSymbolTargets.find(F.ContextName);
+        if (TargetSet != DynamicSymbolTargets.end()) {
+          for (const auto *Target: TargetSet->second) {
+            const auto &InterfaceList = Interfaces.find(Target);
+            if (InterfaceList != Interfaces.end()) {
+              for (auto &Interface: InterfaceList->second) {
+                FunctionUses << V << "\t" << *Interface.ContextName << "\t" << Interface.Types.size() - 1 << "\t" << (Interface.IsVarArg ? 1 : 0) << "\n";
+              }
+            }
+          }
+        }
+      }
     }
     if (vertices[V].property.External) {
       External << V << "\n";
@@ -635,17 +654,17 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
   for (const auto V : vertex_set()) {
     if (vertices[V].property.Context->substr(0, 5) == "call#" || vertices[V].property.Context->substr(0, 13) == "resolvepoint#") {
       VertexTypeCall->insert(souffle::tuple(VertexTypeCall)
-                                << (int32_t)V << *vertices[V].property.Type << *vertices[V].property.Context);
+                                << (DOMAIN_TYPE)V << *vertices[V].property.Type << *vertices[V].property.Context);
     } else {
       VertexTypeContext->insert(souffle::tuple(VertexTypeContext)
-                                << (int32_t)V << *vertices[V].property.Type << *vertices[V].property.Context);
+                                << (DOMAIN_TYPE)V << *vertices[V].property.Type << *vertices[V].property.Context);
     }
     // other type/context pairs
     for (const auto &TCP : vertices[V].property.AdditionalNames) {
       if (TCP.Context->substr(0, 5) == "call#" || TCP.Context->substr(0, 13) == "resolvepoint#") {
-        VertexTypeCall->insert(souffle::tuple(VertexTypeCall) << (int32_t)V << *TCP.Type << *TCP.Context);
+        VertexTypeCall->insert(souffle::tuple(VertexTypeCall) << (DOMAIN_TYPE)V << *TCP.Type << *TCP.Context);
       } else {
-        VertexTypeContext->insert(souffle::tuple(VertexTypeContext) << (int32_t)V << *TCP.Type << *TCP.Context);
+        VertexTypeContext->insert(souffle::tuple(VertexTypeContext) << (DOMAIN_TYPE)V << *TCP.Type << *TCP.Context);
       }
     }
     for (const auto &E : out_edges(V)) {
@@ -654,28 +673,28 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
       case REACHABILITY:
         if (E.source != E.target) {
           if (vertices[V].property.Type->find(VoidStr) != std::string::npos)
-            VoidCast->insert(souffle::tuple(VoidCast) << (int32_t)E.source << (int32_t)E.target);
+            VoidCast->insert(souffle::tuple(VoidCast) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target);
           else
-            NonVoidCast->insert(souffle::tuple(NonVoidCast) << (int32_t)E.source << (int32_t)E.target);
-          //SimpleCast->insert(souffle::tuple(SimpleCast) << (int32_t)E.source << (int32_t)E.target);
+            NonVoidCast->insert(souffle::tuple(NonVoidCast) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target);
+          //SimpleCast->insert(souffle::tuple(SimpleCast) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target);
         }
         break;
       case POINTS_TO:
-        PointsTo->insert(souffle::tuple(PointsTo) << (int32_t)E.source << (int32_t)E.target);
+        PointsTo->insert(souffle::tuple(PointsTo) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target);
         break;
       case STRUCT_MEMBER:
         StructMember->insert(souffle::tuple(StructMember)
-                             << (int32_t)E.source << (int32_t)E.target << E.property.StructOffset);
+                             << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target << (DOMAIN_TYPE)E.property.StructOffset);
         break;
       case UNION_MEMBER:
-        UnionMember->insert(souffle::tuple(UnionMember) << (int32_t)E.source << (int32_t)E.target
-                                                        << SymbolContainer->getUniqueId(E.property.UnionType));
+        UnionMember->insert(souffle::tuple(UnionMember) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target
+                                                        << (DOMAIN_TYPE)SymbolContainer->getUniqueId(E.property.UnionType));
         break;
       }
     }
     for (const auto &F : vertices[V].property.FunctionUses) {
       FunctionUses->insert(souffle::tuple(FunctionUses)
-                           << (int32_t)V << *F.ContextName << (int32_t)F.NumArgs << (int32_t)(F.IsVarArg ? 1 : 0));
+                           << (DOMAIN_TYPE)V << *F.ContextName << (DOMAIN_TYPE)F.NumArgs << (DOMAIN_TYPE)(F.IsVarArg ? 1 : 0));
       if (F.IsDynamicFunction) {
         const auto &TargetSet = DynamicSymbolTargets.find(F.ContextName);
         if (TargetSet != DynamicSymbolTargets.end()) {
@@ -684,8 +703,8 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
             if (InterfaceList != Interfaces.end()) {
               for (auto &Interface: InterfaceList->second) {
                 FunctionUses->insert(souffle::tuple(FunctionUses)
-                                     << (int32_t)V << *Interface.ContextName << (int32_t)Interface.Types.size() - 1
-                                     << (int32_t)(Interface.IsVarArg ? 1 : 0));
+                                     << (DOMAIN_TYPE)V << *Interface.ContextName << (DOMAIN_TYPE)Interface.Types.size() - 1
+                                     << (DOMAIN_TYPE)(Interface.IsVarArg ? 1 : 0));
               }
             }
           }
@@ -693,18 +712,18 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
       }
     }
     if (StoreReachability && vertices[V].property.External) {
-      External->insert(souffle::tuple(External) << (int32_t)V);
+      External->insert(souffle::tuple(External) << (DOMAIN_TYPE)V);
     }
   }
   for (auto &It: PotentialExternalInterfaces) {
     for (Vertex V: It.second) {
-      ExternalInterfaces->insert(souffle::tuple(ExternalInterfaces) << *It.first << (int32_t) V);
+      ExternalInterfaces->insert(souffle::tuple(ExternalInterfaces) << *It.first << (DOMAIN_TYPE) V);
     }
   }
   for (const auto &It : CallInfos) {
     for (auto V: It.second.AllVertices) {
       Calls->insert(souffle::tuple(Calls)
-                    << (int32_t)V << *It.first << (int32_t)(It.second.IsResolvePoint ? 0xffff : It.second.NumArgs));
+                    << (DOMAIN_TYPE)V << *It.first << (DOMAIN_TYPE)(It.second.IsResolvePoint ? 0xffff : It.second.NumArgs));
     }
   }
 
@@ -714,7 +733,7 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
     auto *PossibleFunctions = Program->getRelation("PossibleFunctions");
     assert(PossibleFunctions);
     for (auto &PossibleFunction : *PossibleFunctions) {
-      int32_t Call, Type;
+      DOMAIN_TYPE Call, Type;
       PossibleFunction >> Call >> Type;
       if (Call == Type)
         continue;
@@ -738,14 +757,14 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
     auto *NewPointsTo = Program->getRelation("NewPointsTo");
     assert(ExternalReachability && NewPointsTo);
     for (auto &Er : *ExternalReachability) {
-      int32_t From, To;
+      DOMAIN_TYPE From, To;
       Er >> From >> To;
       if (From != To) {
         add_edge(From, To, TGEdge(CAST_SIMPLE)); // was: REACHABILITY
       }
     }
     for (auto &PT : *NewPointsTo) {
-      int32_t From, To;
+      DOMAIN_TYPE From, To;
       PT >> From >> To;
       if (From != To) {
         add_edge(From, To, TGEdge(POINTS_TO));
@@ -754,7 +773,7 @@ void TypeGraph::computeReachability(bool StorePossibleFunctions, bool StoreReach
   }
 
   for (auto &Ex : *External) {
-    int32_t V;
+    DOMAIN_TYPE V;
     Ex >> V;
     vertices[V].property.External = true;
   }
@@ -940,14 +959,14 @@ std::unique_ptr<TypeGraph> TypeGraph::computeEquivalenceClasses(bool KeepOnlyExt
       switch ((*this)[E].Type) {
       case CAST_SIMPLE:
       case REACHABILITY:
-        SimpleCast->insert(souffle::tuple(SimpleCast) << (int32_t)E.source << (int32_t)E.target);
+        SimpleCast->insert(souffle::tuple(SimpleCast) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target);
         break;
       case POINTS_TO:
-        PointsTo->insert(souffle::tuple(PointsTo) << (int32_t)E.source << (int32_t)E.target);
+        PointsTo->insert(souffle::tuple(PointsTo) << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target);
         break;
       case STRUCT_MEMBER:
         StructMember->insert(souffle::tuple(StructMember)
-                             << (int32_t)E.source << (int32_t)E.target << E.property.StructOffset);
+                             << (DOMAIN_TYPE)E.source << (DOMAIN_TYPE)E.target << (DOMAIN_TYPE)E.property.StructOffset);
         break;
       case UNION_MEMBER:
         break;
@@ -962,7 +981,7 @@ std::unique_ptr<TypeGraph> TypeGraph::computeEquivalenceClasses(bool KeepOnlyExt
   auto Graph = std::unique_ptr<TypeGraph>(new TypeGraph(SymbolContainer));
   std::vector<Vertex> Classes(vertices.size(), NO_VERTEX);
   for (auto &Er : *Equivalence) {
-    int32_t From, To;
+    DOMAIN_TYPE From, To;
     Er >> From >> To;
     // assert(From >= 0 && From < Classes.size());
     // assert(To >= 0 && To < Classes.size());

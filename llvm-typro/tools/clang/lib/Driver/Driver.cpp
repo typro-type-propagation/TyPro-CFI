@@ -79,6 +79,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Typegraph/TypegraphSettings.h"
 #include <map>
 #include <memory>
 #include <utility>
@@ -3694,6 +3695,8 @@ void Driver::BuildJobs(Compilation &C) const {
   llvm::PrettyStackTraceString CrashInfo("Building compilation jobs");
 
   Arg *FinalOutput = C.getArgs().getLastArg(options::OPT_o);
+  if (FinalOutput && FinalOutput->getValue())
+    typegraph::Settings.setOutput(FinalOutput->getValue());
 
   // It is an error to provide a -o option if we are making multiple output
   // files. There are exceptions:
@@ -4463,8 +4466,10 @@ const char *Driver::GetNamedOutputPath(Compilation &C, const JobAction &JA,
   llvm::PrettyStackTraceString CrashInfo("Computing output path");
   // Output to a user requested destination?
   if (AtTopLevel && !isa<DsymutilJobAction>(JA) && !isa<VerifyJobAction>(JA)) {
-    if (Arg *FinalOutput = C.getArgs().getLastArg(options::OPT_o))
+    if (Arg *FinalOutput = C.getArgs().getLastArg(options::OPT_o)) {
+      typegraph::Settings.setOutput(FinalOutput->getValue());
       return C.addResultFile(FinalOutput->getValue(), &JA);
+    }
   }
 
   // For /P, preprocess to file named after BaseInput.

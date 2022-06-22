@@ -86,6 +86,7 @@ def analysis_table():
     icall = {}
     icall_generalized = {}
     tgcfi = {}
+    cfguard = {}
     for progname, dirname, binary in SAMPLE_PROGRAMS:
         base = f'{COLLECTED_GRAPHS}/{progname}'
         binary = os.path.basename(binary)
@@ -105,9 +106,12 @@ def analysis_table():
             ifcc_data = cleanup_function_name_dict(json.loads(f.read())['ifcc_targets_vararg'])
         # precisions
         icall[progname] = call_targets.compute_precision_from_dict(icall_data)
+        if progname == 'nginx':
+            call_targets.print_errors_from_dict(icall_data)
         icall_generalized[progname] = call_targets.compute_precision_from_dict(icall_generalized_data)
         tgcfi[progname] = call_targets.compute_precision_from_dict(tgcfi_data)
         ifcc[progname] = call_targets.compute_precision_from_dict(ifcc_data)
+        cfguard[progname] = call_targets.compute_precision_naive(tgcfi_data, ifcc_data, icall_data)
         # if progname == 'lighttpd': call_targets.print_errors_from_dict(tgcfi_data)
         # coverage
         reached = 0
@@ -119,7 +123,7 @@ def analysis_table():
     programs = list(sorted(tgcfi.keys()))
     table = [[''] + programs + ['avg. %']]
     reference_raw, _, _, _ = raw_numbers_to_cscan_cols(programs, icall)
-    for title, data in [('Clang CFI', icall), ('Clang CFI (generalized)', icall_generalized), ('(ours)', tgcfi), ('IFCC', ifcc)]:
+    for title, data in [('Clang CFI', icall), ('Clang CFI (generalized)', icall_generalized), ('TyPro', tgcfi), ('IFCC', ifcc), ('CFGuard', cfguard)]:
         raw_avg, raw_median, formatted_avg, formatted_median = raw_numbers_to_cscan_cols(programs, data)
         try:
             p = geomean(numpy.array(raw_avg) / numpy.array(reference_raw)) - 1
@@ -137,6 +141,6 @@ def analysis_table():
 
 if __name__ == '__main__':
     # copy_binaries()
-    copy_results()
+    # copy_results()
     analysis_table()
     ...

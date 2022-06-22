@@ -9,6 +9,10 @@
 #include <unistd.h>
 #include <vector>
 
+#ifndef __THROW
+#define __THROW
+#endif
+
 extern "C" {
 // NOLINTNEXTLINE
 [[maybe_unused]] void __calltargets_initialize(const char *CallName, size_t CallCount, void **Ident);
@@ -68,9 +72,13 @@ struct CTModule {
   std::vector<BitSet, SharedMemoryAllocator<BitSet>> CalledFunctions; // call id => used function ids
 };
 
-std::map<void *, size_t> FunctionAddressToIndex;
-std::vector<const char *> FunctionNames{"<<undefined>>"};
-std::vector<std::unique_ptr<CTModule>> Modules;
+struct CTInfos {
+  std::map<void *, size_t> FunctionAddressToIndex;
+  std::vector<const char *> FunctionNames{"<<undefined>>"};
+  std::vector<std::unique_ptr<CTModule>> Modules;
+};
+
+CTInfos *CallTargetInfos = new CTInfos();
 
 std::vector<std::string> getArgv() {
   std::vector<std::string> Result;
@@ -92,18 +100,27 @@ std::vector<std::string> getArgv() {
 }
 
 struct CallTargetReporter {
+  static thread_local bool IsCurrentlyInternal;
+
   CallTargetReporter() {
+    // Use these lines to attach a debugger while running under SPEC's runner
+    // fprintf(stderr, "=== PID = %d ===\n\n\n", getpid());
+    // sleep(30);
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     signal(SIGUSR2, signalHandler);
   }
-  ~CallTargetReporter() { report(); }
+  ~CallTargetReporter() {
+    IsCurrentlyInternal = true;
+    report();
+    IsCurrentlyInternal = false;
+  }
   static void signalHandler(int Signal) { _exit(Signal); }
 
   static bool HasReported;
   static void report() {
     size_t TotalCalls = 0;
-    for (auto &Module: Modules) {
+    for (auto &Module: CallTargetInfos->Modules) {
       TotalCalls += Module->CallNames.size();
     }
     if (TotalCalls > 0) {
@@ -115,15 +132,15 @@ struct CallTargetReporter {
       J["binary"] = program_invocation_name;
       J["cmdline"] = getArgv();
       J["num_calls"] = TotalCalls;
-      J["num_functions"] = FunctionAddressToIndex.size();
-      J["module_count"] = Modules.size();
-      for (auto &Module: Modules) {
+      J["num_functions"] = CallTargetInfos->FunctionAddressToIndex.size();
+      J["module_count"] = CallTargetInfos->Modules.size();
+      for (auto &Module: CallTargetInfos->Modules) {
         for (size_t CallId = 0; CallId < Module->CallNames.size(); CallId++) {
           auto Arr = nlohmann::json::array();
           if (Module->CalledFunctions[CallId].Buffer != nullptr) {
-            for (size_t FuncId = 0; FuncId < FunctionNames.size(); FuncId++) {
+            for (size_t FuncId = 0; FuncId < CallTargetInfos->FunctionNames.size(); FuncId++) {
               if (Module->CalledFunctions[CallId].get(FuncId)) {
-                Arr.push_back(FunctionNames[FuncId]);
+                Arr.push_back(CallTargetInfos->FunctionNames[FuncId]);
               }
             }
           }
@@ -159,13 +176,20 @@ struct CallTargetReporter {
   }
 };
 bool CallTargetReporter::HasReported = false;
+thread_local bool CallTargetReporter::IsCurrentlyInternal = false;
 
 CallTargetReporter Reporter;
+
+struct CurrentlyInteralGuard {
+  inline CurrentlyInteralGuard() { CallTargetReporter::IsCurrentlyInternal = true; }
+  inline ~CurrentlyInteralGuard() { CallTargetReporter::IsCurrentlyInternal = false; }
+};
 
 } // namespace
 
 // NOLINTNEXTLINE
 void __calltargets_initialize(const char *CallName, size_t CallCount, void **Ident) {
+  CurrentlyInteralGuard Guard;
   std::unique_ptr<CTModule> Module = std::make_unique<CTModule>();
   Module->CallNames.reserve(CallCount);
   for (size_t I = 0; I < CallCount; I++) {
@@ -174,23 +198,28 @@ void __calltargets_initialize(const char *CallName, size_t CallCount, void **Ide
   }
   Module->CalledFunctions.assign(Module->CallNames.size(), BitSet());
   *Ident = (void*) Module.get();
-  Modules.emplace_back(std::move(Module));
+  CallTargetInfos->Modules.emplace_back(std::move(Module));
 }
 
 // NOLINTNEXTLINE
 [[maybe_unused]] void __calltargets_add_function(const char *FunctionName, void *FunctionAddress) {
-  FunctionAddressToIndex[FunctionAddress] = FunctionNames.size();
-  FunctionNames.push_back(FunctionName);
+  CurrentlyInteralGuard Guard;
+  CallTargetInfos->FunctionAddressToIndex[FunctionAddress] = CallTargetInfos->FunctionNames.size();
+  CallTargetInfos->FunctionNames.push_back(FunctionName);
 }
 
 // NOLINTNEXTLINE
 void __calltargets_count(void **Ident, size_t CallNumber, void *Function) {
-  auto It = FunctionAddressToIndex.find(Function);
-  auto FunctionNumber = It == FunctionAddressToIndex.end() ? 0 : It->second;
-  ((CTModule**) Ident)[0]->CalledFunctions[CallNumber].set(FunctionNumber, FunctionNames.size());
+  if (*Ident == nullptr || CallTargetReporter::IsCurrentlyInternal)
+    return;
+  CurrentlyInteralGuard Guard;
+  auto It = CallTargetInfos->FunctionAddressToIndex.find(Function);
+  auto FunctionNumber = It == CallTargetInfos->FunctionAddressToIndex.end() ? 0 : It->second;
+  ((CTModule**) Ident)[0]->CalledFunctions[CallNumber].set(FunctionNumber, CallTargetInfos->FunctionNames.size());
 }
 
 void _exit(int Status) {
+  CurrentlyInteralGuard Guard;
   CallTargetReporter::report();
   syscall(231, Status); // EXIT_GROUP
   syscall(60, Status);  // EXIT

@@ -22,13 +22,25 @@ def find_tool(name, subdir='bin'):
     build_dirs = list(glob.glob(os.path.join(llvm_dir, 'cmake-build-*'))) + [os.path.join(basedir, 'build'), os.path.join(llvm_dir, 'build')]
     candidates = [os.path.join(dir, subdir, name) for dir in build_dirs if os.path.exists(os.path.join(dir, subdir, name))]
     candidates.sort(key=lambda fname: os.path.getmtime(fname), reverse=True)
+    #if len(candidates) == 0: return None
     assert len(candidates) > 0, f'Tool "{name}" not found!'
     print(f'{name}: "{candidates[0]}"')
     return candidates[0]
 
 
+def find_musl_clang(sysroot='x86_64-linux-musl') -> Optional[str]:
+    basedir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    file = os.path.join(basedir, 'sysroots', sysroot, 'bin', 'my-clang')
+    if os.path.exists(file):
+        return file
+    else:
+        return None
+
+
+
 CLANG = find_tool('clang')
 TYPEGRAPH_TOOL = find_tool('llvm-typegraph')
+MUSL_CLANG = find_musl_clang()
 SYSROOT = None
 CFLAGS = []
 CXXFLAGS = []
@@ -572,10 +584,13 @@ class SourceCodeFile:
     def __init__(self, code: str, compiler='C', flags=None):
         self.code = code
         self.compiler = compiler
+        self.compiler_binary = None
         self.flags: List[str] = flags or ['-O1']
         self.env: Dict[str, str] = {}
 
     def get_compiler(self) -> List[str]:
+        if self.compiler_binary:
+            return [self.compiler_binary] + CFLAGS
         if self.compiler == 'C': return [CLANG] + CFLAGS
         if self.compiler == 'CXX': return [CLANG + '++'] + CXXFLAGS
         assert False
@@ -609,6 +624,7 @@ class SourceCode:
         self.binary_fname = random_string(20) + '.bin'
         self.linker_flags = ['-O1']
         self.env = {}
+        self.compiler_binary = None
 
     @staticmethod
     def from_string(code: str) -> 'SourceCode':
@@ -670,7 +686,8 @@ class SourceCode:
         env.update(self.env)
         output = f'{TMPDIR}/{self.binary_fname}'
         files = [f for f, _ in self.compile()]
-        cmd = [CLANG + '++' if self.is_cxx() else CLANG] + LDFLAGS
+        cmd = [CLANG + '++' if self.is_cxx() else CLANG] if not self.compiler_binary else [self.compiler_binary]
+        cmd += LDFLAGS
         cmd += ['-o', output] + files + self.linker_flags
         subprocess.check_call(cmd, env=env, cwd=TMPDIR)
         return output
@@ -724,8 +741,11 @@ class SourceCode:
         libname = os.path.basename(library)
         libdir = os.path.abspath(os.path.dirname(library))
         self.linker_flags += ['-l' + libname[3:].replace('.so', ''), '-L' + libdir, '-Wl,-rpath,' + libdir]
-        self.env['TG_DYNLIB_SUPPORT'] = '1'
+        self.add_library_support()
         return self
+
+    def add_library_support(self):
+        self.env['TG_DYNLIB_SUPPORT'] = '1'
 
     def set_env(self, key: str, value: str) -> 'SourceCode':
         self.env[key] = value
@@ -916,6 +936,10 @@ class CallTargets:
                 assert f in graph.usedFunctions, f'Function "{f}" called but never used'
 
     def compute_precision_from_dict(self, d: Dict[str, List[str]]) -> Dict[str, CallPrecision]:
+        """
+        :param d: Call Name => List of allowed functions
+        :return: Call Name => CallPrecision statistics
+        """
         results = {}
         for call, called_functions in self.calls.items():
             if len(called_functions) == 0:
@@ -928,11 +952,32 @@ class CallTargets:
             #    print(f'CALL {len(called_functions)} to {len(allowed_functions - called_functions)} | {call}: Allowed but not called: {allowed_functions - called_functions}. Called: {called_functions}')
         return results
 
-    def print_errors_from_dict(self, d: Dict[str, List[str]]):
+    def compute_precision_naive(self, *args) -> Dict[str, CallPrecision]:
+        """
+        Simulate a naive (CFGuard) implementation, that simply allows all (address-taken) functions as targets
+        :param args: Multiple dicts that we can use to pull possible targets from
+        :return: Call Name => CallPrecision statistics
+        """
+        allowed_functions = set()
+        for d in args:
+            for l in d.values():
+                allowed_functions.update(l)
+        results = {}
+        for call, called_functions in self.calls.items():
+            results[call] = CallPrecision(len(called_functions & allowed_functions), len(allowed_functions - called_functions),
+                                          len(called_functions - allowed_functions))
+        return results
+
+    def print_errors_from_dict(self, d: Dict[str, List[str]], d2: Dict[str, List[str]] = None):
         for call, called_functions in self.calls.items():
             errors = called_functions - set(d.get(call, []))
             if len(errors) > 0:
                 print('ERRORS:', call, ': called but not in set are ', errors, '. Allowed =', set(d.get(call, [])), 'Called =', called_functions)
+                if d2:
+                    if len(called_functions - set(d2.get(call, []))) > 0:
+                        print('  (this is not an error of post-filtering)')
+                    else:
+                        print('  (this error is introduced by post-filtering)')
 
     def compute_precision(self, graph: Typegraph) -> Dict[str, CallPrecision]:
         results = {}

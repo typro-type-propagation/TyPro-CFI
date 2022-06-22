@@ -51,6 +51,7 @@ Additional options help to fine-tune the protection for your applications, to de
 | `TG_ENFORCE_ID_BITWIDTH`           | 31        | Max size of function IDs (up to 64). Smaller IDs have higher chance of collision, but generate faster code.                    |
 | `TG_ENFORCE_MIN_ID`                | 2         | Smallest ID any function can have. If you use constants casted to function pointers (like SIG_IGN), this value must be higher. |
 | `TG_ENFORCE_DEBUG`                 | false     | Generate debug code for target set enforcement (see which function might violate generated target sets)                        |
+| `TG_CONSIDER_RETURN_TYPE`          | true      | Bit-width of return types must match between function pointer and function                                                     |
 | `TG_CLANG_SHOW_GRAPH`              | false     | Show the (interesting part of the) generated facts of a source file                                                            |
 | `TG_CLANG_MINIMIZE_GRAPH`          | true      | Optimize generated facts for each source file                                                                                  |
 | `TG_INSTRUMENT_COLLECTCALLTARGETS` | false     | Instrument indirect calls to collect targets during program execution                                                          |
@@ -58,6 +59,19 @@ Additional options help to fine-tune the protection for your applications, to de
 | `TG_CFI_OUTPUT`                    | -         | Path to write the generated target sets in JSON format (can be `auto` for binary.tgcfi.json)                                   |
 | `TG_ICFI_OUTPUT`                   | -         | Path to write Clang CFI's target sets in JSON format (can be `auto`)                                                           |
 | `TG_IFCC_OUTPUT`                   | -         | Path to write IFCC's target sets in JSON format (can be `auto`)                                                                |
+
+
+## Building musl libc sysroot
+To build a protected musl libc, you also need a native, non-protecting clang and lld (both version 10).
+It is necessary to build Typro's runtime library, which can't be protected itself.
+The docker container already contains a pre-built musl libc, you need these steps only for non-docker setups.
+
+- `cd scripts`
+- `./build-libraries-rt.sh`
+- `./build-libraries.sh`
+
+The result should be an enforcing musl sysroot in `sysroots/x86_64-linux-musl/`.
+
 
 
 ## Running tests

@@ -1281,6 +1281,13 @@ void LinkerDriver::createFiles(opt::InputArgList &args) {
     }
   }
 
+  // TODO MOD - remove musl's dynamic linker flag in static linking mode (like gcc does)
+  if (config->isStatic) {
+    config->noDynamicLinker = true;
+    config->dynamicLinker = "";
+  }
+  // TODO END MOD
+
   if (files.empty() && errorCount() == 0)
     error("no input files");
 }

@@ -55,7 +55,16 @@ case "$MODE" in
             build "$P" "enforcestatic"
         done
         ;;
-    "enforce" | "enforcestatic" | "icall" | "instrument" | "ref")
+    "musl")
+        echo "Mode = $MODE"
+        echo "$(date) | --- Start building with mode = $MODE ---" >> $LOGFILE
+        for P in $PROGRAMS; do
+            build "$P" "musl_enforce"
+            build "$P" "musl_enforce_static"
+            build "$P" "musl_instrument"
+        done
+        ;;
+    "enforce" | "enforcestatic" | "icall" | "instrument" | "ref" | "musl_enforce" | "musl_enforce_static" | "musl_instrument")
         echo "Mode = $MODE"
         echo "$(date) | --- Start building with mode = $MODE ---" >> $LOGFILE
         for P in $PROGRAMS; do

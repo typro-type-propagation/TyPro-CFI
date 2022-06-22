@@ -16,7 +16,7 @@ fi
 cd "$DIR"
 
 ./autogen.sh --enable-static --disable-shared
-./configure --enable-static --disable-shared --without-capabilities
+./configure --enable-static --disable-shared --without-capabilities --prefix=$INSTALL_DIR $CONFIGURE_FLAGS
 
 rm -rf graph.*
 nice -5 make -j$(nproc)
