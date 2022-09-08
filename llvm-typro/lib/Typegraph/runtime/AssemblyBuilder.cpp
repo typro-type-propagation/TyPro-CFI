@@ -20,6 +20,12 @@ namespace {
 #define MIPS_BRANCH_REL 20
 #define MIPS_BRANCH_REL16 21
 #define MIPS_BRANCH_MEMREL16 22
+#define ARM_CONDITIONAL_BRANCH_IMM_MASK ((0xfffffu/4)<<5)
+#define ARM_BRANCH_IMM_MASK 0x1ffffffu
+#define MIPS_BRANCH_REL_MASK 0x7fffu
+#define MIPS_BRANCH_REL16_MASK 0x1fffu
+#define MIPS_BRANCH_ABS_MASK (0xfffffffu/4)
+#define MIPS_BRANCH_MEMREL16_MASK 0xffffu
 
 struct JmpTarget {
   AssemblyBuilder &Builder;
@@ -34,38 +40,38 @@ struct JmpTarget {
       uintptr_t AddrBase = (uintptr_t) Builder.byOffset(OffsetFrom);
       uintptr_t AddrDest = (uintptr_t) Builder.byOffset(Offset);
       assert((AddrBase & 0xffffffff0000000) == (AddrDest & 0xffffffff0000000));
-      ((uint32_t*) Builder.byOffset(OffsetFrom))[-1] |= (AddrDest & 0xfffffff)/4;
+      Builder.write32At(OffsetFrom-4, Builder.read32(OffsetFrom-4) | (AddrDest & 0xfffffff)/4);
       return;
     }
     // function-relative encodings. In MIPS, $t9 in PIC is always the start of the current function, we can address relative to that.
     if (Type == MIPS_BRANCH_MEMREL16) {
       Offset = Offset - Builder.currentFunctionStartOffset();
       assert(-0x8000 <= Offset && Offset <= 0x7fff);
-      ((uint32_t*) Builder.byOffset(OffsetFrom))[-1] |= (Offset & 0xffffu);
+      Builder.write32At(OffsetFrom-4, Builder.read32(OffsetFrom-4) | (Offset & 0xffffu));
       return;
     }
     // relative jump encodings
     Offset = Offset - OffsetFrom;
     if (Type == 1) {
       assert(0 <= Offset && Offset <= 0x7f);
-      Builder.byOffset(OffsetFrom - Type)[0] = Offset;
+      Builder.write8At(OffsetFrom - Type, Offset);
     } else if (Type == 4) {
       assert(0 <= Offset && Offset <= 0x7fffffff);
-      ((int *)Builder.byOffset(OffsetFrom - Type))[0] = Offset;
+      Builder.write32At(OffsetFrom - Type, Offset);
     } else if (Type == ARM_CONDITIONAL_BRANCH_IMM) {
       // aarch64's conditional branch mode (offset/4), <<5 - 19 bits given (signed)
       assert(0 <= Offset && Offset <= 0xfffff);
-      ((uint32_t*) Builder.byOffset(OffsetFrom))[0] |= (Offset/4) << 5;
+      Builder.write32At(OffsetFrom, Builder.read32(OffsetFrom) | (Offset/4) << 5);
     } else if (Type == ARM_BRANCH_IMM) {
       // aarch64's branch mode (offset/4) - 26 bits given
       assert(0 <= Offset && Offset <= 0x4ffffff);
-      ((uint32_t*) Builder.byOffset(OffsetFrom))[0] |= Offset/4;
+      Builder.write32At(OffsetFrom, Builder.read32(OffsetFrom) | Offset/4);
     } else if (Type == MIPS_BRANCH_REL) {
       assert(0 <= Offset && Offset <= 0x1ffff);
-      ((uint32_t*) Builder.byOffset(OffsetFrom))[-1] |= Offset/4;
+      Builder.write32At(OffsetFrom-4, Builder.read32(OffsetFrom-4) | Offset/4);
     } else if (Type == MIPS_BRANCH_REL16) {
       assert(0 <= Offset && Offset <= 0x7fff);
-      ((uint32_t*) Builder.byOffset(OffsetFrom))[-1] |= Offset/4;
+      Builder.write32At(OffsetFrom-4, Builder.read32(OffsetFrom-4) | Offset/4);
     }
   }
 
@@ -131,7 +137,18 @@ void AssemblyBuilder::assertSpace(size_t Bytes) {
   }
 }
 
-void AssemblyBuilder::generateDispatcher(size_t Index, std::vector<FunctionInfos> &Targets, void **OutputAddress,
+#ifdef ASM_BUILDER_CHECKING
+void AssemblyBuilder::startChecking() {
+  if (PageStart) {
+    int Result = mprotect(PageStart, PageSize, PROT_READ);
+    assert(Result == 0);
+  }
+  Checking = true;
+  CurrentPos = PageStart;
+}
+#endif
+
+void AssemblyBuilder::generateDispatcher(size_t Index, std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, void **OutputAddress,
                                          FunctionID PreferredID) {
   /*
   if (Targets.empty()) {

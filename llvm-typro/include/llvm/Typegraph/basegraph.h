@@ -1,8 +1,7 @@
 #ifndef LLVM_TYPEGRAPHS_BASEGRAPH_H
 #define LLVM_TYPEGRAPHS_BASEGRAPH_H
 
-
-#include <vector>
+#include "basicdefs.h"
 #include <stack>
 #include <cassert>
 #include "unique_vector.h"
@@ -94,7 +93,7 @@ public:
   };
 
   // Storage: Vertex with adjacency lists
-  std::vector<VertexImpl> vertices;
+  VectorCls<VertexImpl> vertices;
 
   inline VertexSet vertex_set() const {
     return VertexSet(this);
@@ -282,6 +281,6 @@ public:
   }
 };
 
-}
+} // namespace basegraph
 
 #endif // LLVM_TYPEGRAPHS_BASEGRAPH_H

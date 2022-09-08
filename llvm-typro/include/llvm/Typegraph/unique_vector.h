@@ -1,6 +1,7 @@
 #ifndef LLVM_TYPEGRAPHS_UNIQUE_VECTOR_H
 #define LLVM_TYPEGRAPHS_UNIQUE_VECTOR_H
 
+#include "basicdefs.h"
 #include <cstddef>
 #include <vector>
 
@@ -9,10 +10,10 @@ namespace basegraph {
 // Unique vector - a set implementation based on vectors (more space-efficient, fast enough for small sets)
 template <typename Tp> class unique_vector {
 public:
-  typedef typename std::vector<Tp>::size_type size_type;
-  typedef typename std::vector<Tp>::iterator iterator;
-  typedef typename std::vector<Tp>::const_iterator const_iterator;
-  std::vector<Tp> vec;
+  typedef typename VectorCls<Tp>::size_type size_type;
+  typedef typename VectorCls<Tp>::iterator iterator;
+  typedef typename VectorCls<Tp>::const_iterator const_iterator;
+  VectorCls<Tp> vec;
 
   void push_back(const Tp &x) { insert(x); }
 

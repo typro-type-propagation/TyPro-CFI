@@ -1,21 +1,9 @@
 #ifndef LLVM_TYPEGRAPHS_TGCALLGRAPH_H
 #define LLVM_TYPEGRAPHS_TGCALLGRAPH_H
+
+#include "basicdefs.h"
 #include "StringContainer.h"
 #include "basegraph.h"
-
-#ifdef WITHOUT_LLVM
-#include <map>
-#include <set>
-#define MapCls std::map
-#define SetCls std::set
-#else
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseMapInfo.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/IR/Function.h"
-#define MapCls llvm::DenseMap
-#define SetCls llvm::DenseSet
-#endif
 
 namespace typegraph {
 

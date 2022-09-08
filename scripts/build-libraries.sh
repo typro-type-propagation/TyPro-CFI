@@ -40,6 +40,25 @@ install_deb() {  # <url> <filename>
   rm -rf tmp
 }
 
+download_and_install_deb() {
+  package_name_for_regex="${1/+/\\+}"
+  # download package index
+  if [ ! -f /tmp/Packages-Sysroots-$DEB_ARCH ]; then
+    wget "http://ftp.de.debian.org/debian/dists/bullseye/main/binary-$DEB_ARCH/Packages.gz" -O/tmp/Packages-Sysroots-$DEB_ARCH.gz
+    gzip -d /tmp/Packages-Sysroots-$DEB_ARCH.gz
+  fi
+  # parse the package index
+  url=$(grep -Pzo '(?s)Package: '"$package_name_for_regex"'\n.*?\n\n' /tmp/Packages-Sysroots-$DEB_ARCH | grep -Poa '^Filename: \K.*$' || true)
+  if [ -z "$url" ]; then
+    echo "Package not found: $1 ($DEB_ARCH)"
+    return 1
+  fi
+  # download and install the package
+  url="http://ftp.de.debian.org/debian/$url"
+  echo "[+] Installing $(basename $url) from '$url' ..."
+  install_deb "$url" "$(basename $url)"
+}
+
 make_musl_libc() {
   mkdir -p "$SYSROOT"
   WORKDIR="$SYSROOT-work"
@@ -68,7 +87,7 @@ make_musl_libc() {
   export LDFLAGS="-g --sysroot $SYSROOT $LINK_FLAGS "$SYSROOT/usr/typro-lib/typro-rt-obj/*.o" -lc++ -lc++abi -lunwind -fopenmp -lomp -lgcc"
   export TG_PROTECTED_LIBC=1
   export TG_DYNLIB_SUPPORT=1
-  export TG_LLVM_OUTPUT=/tmp/musl.ll
+  #export TG_LLVM_OUTPUT=/tmp/musl.ll
   export TG_GRAPH_OUTPUT=auto
   ./configure --prefix="$SYSROOT" --syslibdir="$SYSROOT/lib" $optional
   make -j$(nproc)
@@ -107,8 +126,8 @@ make_clang_scripts() {
 }
 
 download_dependencies() {
-  install_deb "http://ftp.de.debian.org/debian/pool/main/g/gcc-10/libgcc-10-dev_10.2.1-6_$DEB_ARCH.deb" "libgcc-10-dev_10.2.1-6_$DEB_ARCH.deb"
-  install_deb "http://ftp.de.debian.org/debian/pool/main/l/linux/linux-libc-dev_5.10.106-1_$DEB_ARCH.deb" "linux-libc-dev_5.10.106-1_$DEB_ARCH.deb"
+  download_and_install_deb libgcc-10-dev
+  download_and_install_deb linux-libc-dev
 }
 
 install_typro_libs() {
@@ -141,7 +160,8 @@ TARGET="aarch64-linux-musl"
 SYSROOT="$ROOT/sysroots/aarch64-linux-musl"
 DEB_ARCH=arm64
 DEB_TARGET=aarch64-linux-gnu
-#download_dependencies
-#make_musl_libc
-#make_clang_scripts
+download_dependencies
+make_musl_libc
+make_clang_scripts
+install_typro_libs
 

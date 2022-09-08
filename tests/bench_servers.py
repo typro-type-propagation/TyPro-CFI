@@ -77,7 +77,7 @@ SERVERS = {
         'cwd': 'redis/redis-enforce/src',
         'cmd': ['./redis-server', '--port', '7777', '--loglevel', 'warning', '--save', ''],
         'address': '-h 127.0.0.1 -p 7777',
-        'test_config': BenchConfig(['redis-benchmark'], 100, 1, False),
+        'test_config': BenchConfig(['/home/mbauer/Projekte/typegraph-llvm/examples/redis/redis-ref/src/redis-benchmark'], 100, 1, False),
         'after_server_start': lambda: os.system('redis-cli -p 7777 FLUSHALL')
     },
     'memcached': {
@@ -103,7 +103,7 @@ SERVERS = {
 
 SERVERS_HTTP = ['apache', 'lighttpd', 'nginx']
 
-MODES = ['enforcestatic', 'ref']
+MODES = ['ref', 'enforcestatic']
 
 HTTP_CONFIGS = [
     # BenchConfig(['ab'], 100000, 1, False),
@@ -126,7 +126,8 @@ HTTP_CONFIGS = [
     # BenchConfig(['ab'], 5000000, 10, False),
     # BenchConfig(['ab'], 5000000, 10, True),
     # BenchConfig(['ab'], 10000000, 10, True),
-    BenchConfig(['ab'], 1000000, 10, False),
+    #BenchConfig(['ab'], 1000000, 128, False),
+    BenchConfig(['ab'], 100000, 1, False),
 ]
 REDIS_CONFIGS = [
     # BenchConfig(['redis-benchmark'], 100000, 1, False),
@@ -146,7 +147,7 @@ REDIS_CONFIGS = [
     # BenchConfig(['redis-benchmark'], 100000, 64, True),
     # BenchConfig(['redis-benchmark'], 100000, 128, True),
     # BenchConfig(['redis-benchmark'], 500000, 10, True),
-    BenchConfig(['redis-benchmark'], 200000, 10, False)
+    BenchConfig(['/home/mbauer/Projekte/typegraph-llvm/examples/redis/redis-ref/src/redis-benchmark'], 200000, 10, False)
 ]
 MEMCACHED_CONFIGS = [
     # BenchConfig(['memaslap'], 300, 64, False),
@@ -154,8 +155,8 @@ MEMCACHED_CONFIGS = [
     # BenchConfig(['memaslap'], 600, 64, False),
 ]
 FTP_CONFIGS = {
-    'vsftpd': [BenchConfig([BASE + '/ftpbench'], 0, 0, True)],
-    'pureftpd': [BenchConfig([BASE + '/ftpbench'], 0, 0, False)]
+    'vsftpd': [BenchConfig([BASE + '/ftpbench', '-s', '500M'], 0, 0, True)],
+    'pureftpd': [BenchConfig([BASE + '/ftpbench', '-s', '500M'], 0, 0, False)]
 }
 
 SERVER_RUN_PREFIX = f'sudo cset shield --exec -- sudo -u {USERNAME} -H chrt -f 99 nice -n -20'.split() + [os.path.dirname(os.path.abspath(__file__)) + '/pid-wrapper.sh']
@@ -168,11 +169,11 @@ def wipe_all_caches():
 
 
 def start_benches():
-    subprocess.check_call(['sudo', 'governor-set', 'f'])
+    subprocess.check_call(['sudo', '/home/mbauer/governor-set', 'f'])
     os.system("echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo")
     subprocess.check_call(['sudo', 'free'])
     subprocess.check_call(['sudo', 'swapoff', '-a'])
-    subprocess.check_call(['sudo', 'cset', 'shield', '-c', '2,3,4,5', '-k', 'on'])
+    subprocess.check_call(['sudo', 'cset', 'shield', '-c', '1,2,5,6', '-k', 'on'])
     print('-' * 80)
     print('\n')
     sys.stderr.flush()
@@ -184,7 +185,7 @@ def stop_benches():
     print('-' * 80)
     sys.stderr.flush()
     sys.stdout.flush()
-    os.system('sudo governor-set p')
+    os.system('sudo /home/mbauer/governor-set p')
     os.system('echo 0 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo')
     os.system('sudo cset shield -r')
 
@@ -289,7 +290,7 @@ def run_benchmark(file: Optional[TextIO], server_name: str, mode: str, config: B
         print('Server not build!', server_name, mode)
         return
     try:
-        time.sleep(1)
+        time.sleep(2)
         if 'after_server_start' in server:
             server['after_server_start']()
 
@@ -349,7 +350,7 @@ def run_benchmark(file: Optional[TextIO], server_name: str, mode: str, config: B
 
 
 def main():
-    REPEAT = 20
+    REPEAT = 40
 
     try:
         # prepare environment
@@ -376,8 +377,8 @@ def main():
             time.sleep(10)
 
             # run for real - HTTP
-            '''
-            for server in SERVERS_HTTP:
+            #'''
+            for server in ['apache', 'nginx', 'lighttpd']:
                 for _ in range(REPEAT):
                     for mode in MODES:
                         for config in HTTP_CONFIGS:
@@ -406,7 +407,7 @@ def main():
                                 errors += 1
             # '''
             # run for real - FTP
-            # '''
+            '''
             for server in ['pureftpd', 'vsftpd']:
                 for _ in range(REPEAT):
                     for mode in MODES:

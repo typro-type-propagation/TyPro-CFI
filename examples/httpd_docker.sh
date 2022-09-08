@@ -30,10 +30,10 @@ mkdir -p httpd
 cd httpd
 
 if [ ! -d httpd-${httpd_v}-$MODE ]; then
-    if [ ! -f httpd-${httpd_v}.tar.gz ]; then
+    if [ ! -f ../httpd-${httpd_v}.tar.gz ]; then
         wget https://dlcdn.apache.org//httpd/httpd-${httpd_v}.tar.gz
     fi
-    tar -xf httpd-${httpd_v}.tar.gz
+    tar -xf ../httpd-${httpd_v}.tar.gz
     mv httpd-${httpd_v} httpd-${httpd_v}-$MODE
 fi
 

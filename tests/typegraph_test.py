@@ -4520,6 +4520,11 @@ class MuslLibcStaticTestCases(MuslLibcTestCases):
     test_dlopen = None
 
 
+if ARCH['name'] != 'native':
+    MuslLibcTestCases = unittest.skip("needs further config")(MuslLibcTestCases)
+    MuslLibcStaticTestCases = unittest.skip("needs further config")(MuslLibcStaticTestCases)
+
+
 del OneCallTestCaseBase
 del OneCallTestCase
 

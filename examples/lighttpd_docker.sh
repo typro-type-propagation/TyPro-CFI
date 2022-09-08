@@ -118,8 +118,8 @@ echo "[DONE MAKE]"
 # cd $SCRIPT_DIR/lighttpd/lighttpd-1.4.59-enforce/src
 # ./lighttpd -f ../../../lighttpd_sample.conf -D
 
-cd tests
-make check
+#cd tests
+#make check
 
 echo "[DONE TESTS]"
 echo "To re-run tests:"

@@ -2,8 +2,8 @@
 #define LLVM_TYPEGRAPHS_TYPEGRAPH_BINARY_LOADER_H
 
 #include "enforcing_rt.h"
-#include <llvm/Typegraph/Typegraph.h>
 #include <endian.h>
+#include <llvm/Typegraph/Typegraph.h>
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 // ok
@@ -48,9 +48,10 @@ public:
 };
 
 namespace typegraph {
-BinaryStreamReader loadTypegraphFromBinary(typegraph::TypeGraph &Graph, const char *GraphData,
-                                           std::vector<std::unique_ptr<rt::FunctionInfos>> &Functions,
-                                           void **&References);
+BinaryStreamReader loadTypegraphFromBinary(
+    typegraph::TypeGraph &Graph, const char *GraphData,
+    std::vector<std::unique_ptr<rt::FunctionInfos>, ProtectedAllocator<std::unique_ptr<rt::FunctionInfos>>> &Functions,
+    void **&References);
 } // namespace typegraph
 
 #endif // LLVM_TYPEGRAPHS_TYPEGRAPH_BINARY_LOADER_H

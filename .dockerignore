@@ -2,6 +2,7 @@
 /build
 /llvm-typro/cmake-build-debug
 /llvm-typro/cmake-build-minsizerel
+/llvm-novt
 /Dockerfile
 /.Dockerfile*
 /.dockerignore

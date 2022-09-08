@@ -21,7 +21,7 @@ struct AsmWriter {
     for (auto &J: ErrorCases)
       J.setTarget(Builder.currentOffset());
     for (auto &I: ErrorCasesAbsolute) {
-      *((char**) Builder.byOffset(I)) = Builder.currentPos();
+      Builder.write64At(I, (uintptr_t) Builder.currentPos());
     }
   }
 
@@ -32,7 +32,7 @@ struct AsmWriter {
 
   JmpTarget writeBNE() {
     size_t Offset = Builder.currentOffset();
-    Builder.write32(0x54000001);
+    Builder.write32Mask(0x54000001, ~ARM_CONDITIONAL_BRANCH_IMM_MASK);
     return JmpTarget(Builder, Offset, ARM_CONDITIONAL_BRANCH_IMM);
   }
 
@@ -40,7 +40,7 @@ struct AsmWriter {
     // x86: ja
     size_t Offset = Builder.currentOffset();
     // 54000008        b.hi    0x0  // b.pmore
-    Builder.write32(0x54000008);
+    Builder.write32Mask(0x54000008, ~ARM_CONDITIONAL_BRANCH_IMM_MASK);
     return JmpTarget(Builder, Offset, ARM_CONDITIONAL_BRANCH_IMM);
   }
 
@@ -48,13 +48,13 @@ struct AsmWriter {
     // x86: jae
     size_t Offset = Builder.currentOffset();
     // 54000002        b.cs    0x0  // b.hs, b.nlast
-    Builder.write32(0x54000002);
+    Builder.write32Mask(0x54000002, ~ARM_CONDITIONAL_BRANCH_IMM_MASK);
     return JmpTarget(Builder, Offset, ARM_CONDITIONAL_BRANCH_IMM);
   }
 
   JmpTarget writeBranch() {
     size_t Offset = Builder.currentOffset();
-    Builder.write32(0x14000000);
+    Builder.write32Mask(0x14000000, ~ARM_BRANCH_IMM_MASK);
     return JmpTarget(Builder, Offset, ARM_BRANCH_IMM);
   }
 
@@ -118,7 +118,7 @@ struct AsmWriter {
   JmpTarget writeJumpPCRelativeAddress() {
     size_t Offset = Builder.currentOffset();
     // 10000071        adr     x17, 0xc
-    Builder.write32(0x10000011);
+    Builder.write32Mask(0x10000011, ~ARM_CONDITIONAL_BRANCH_IMM_MASK);
     // f8707a31        ldr     x17, [x17, x16, lsl #3]
     Builder.write32(0xf8707a31);
     // d61f0220        br      x17
@@ -182,7 +182,7 @@ struct AsmWriter {
     Builder.write((uint32_t) 0xd4200020);
   }
 
-  void genIfThenElseChain(std::vector<FunctionInfos> &Targets, FunctionID PreferredID) {
+  void genIfThenElseChain(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, FunctionID PreferredID) {
     auto PreferredFunc = std::find(Targets.begin(), Targets.end(), PreferredID);
     if (PreferredFunc != Targets.end()) {
       writeCmpX16(PreferredID);
@@ -214,7 +214,7 @@ struct AsmWriter {
    * @param X16HasLastBeenComparedTo If the last instruction before this tree was a "cmp r11, <const>", pass this
    * constant. Saves one instruction.
    */
-  void genTree(std::vector<FunctionInfos> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max,
+  void genTree(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max,
                FunctionID X16HasLastBeenComparedTo = -1) {
     // only 1 target
     if (EndIndex - StartIndex == 1) {
@@ -253,7 +253,7 @@ struct AsmWriter {
     genTree(Targets, PivotIndex, EndIndex, Targets[PivotIndex].ID, Max, Targets[PivotIndex].ID);
   }
 
-  size_t genJumptable(std::vector<FunctionInfos> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max) {
+  size_t genJumptable(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max) {
     size_t Offset = 0;
     if (Targets[StartIndex].ID - Min >= 4) {
       Offset = Targets[StartIndex].ID;
@@ -278,7 +278,7 @@ struct AsmWriter {
         I++;
       } else {
         ErrorCasesAbsolute.push_back(Builder.currentOffset());
-        Builder.write((uint64_t) 0);
+        Builder.write("\x00\x00\x00\x00\x00\x00\x00\x00", 8, 0);
       }
     }
 
@@ -286,7 +286,7 @@ struct AsmWriter {
     return Offset;
   }
 
-  void genSwitch(std::vector<FunctionInfos> &Targets, size_t StartIndex, size_t EndIndex, FunctionID PreferredID) {
+  void genSwitch(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, size_t StartIndex, size_t EndIndex, FunctionID PreferredID) {
     if (EndIndex - StartIndex <= 4) {
       genIfThenElseChain(Targets, PreferredID);
     } else {
@@ -303,7 +303,7 @@ struct AsmWriter {
     }
   }
 
-  void genSwitch(std::vector<FunctionInfos> &Targets, FunctionID PreferredID) {
+  void genSwitch(std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, FunctionID PreferredID) {
     std::sort(Targets.begin(), Targets.end());
     genSwitch(Targets, 0, Targets.size(), PreferredID);
   }

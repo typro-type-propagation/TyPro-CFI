@@ -75,7 +75,7 @@ ARCHS = {
 
 
 def set_arch(name: str):
-    global SYSROOT, ARCHS, ARCH, CFLAGS, CXXFLAGS, LDFLAGS, RUN_PREFIX
+    global SYSROOT, ARCHS, ARCH, CFLAGS, CXXFLAGS, LDFLAGS, RUN_PREFIX, MUSL_CLANG
     ARCH = ARCHS[name]
     target = ARCH['target']
     print(f'=== USING TARGET ARCH {name} ({target}) ===')
@@ -104,6 +104,7 @@ def set_arch(name: str):
         '-B', f'{SYSROOT}/usr/lib/{target}', '-B', f'{SYSROOT}/usr/lib/gcc/{target}/{gcc}'
     ]
     RUN_PREFIX = [f'qemu-{name}', '-L', SYSROOT]
+    MUSL_CLANG = find_musl_clang(ARCH['target'].replace('gnu', 'musl'))
 
 
 if 'ARCH' in os.environ and os.environ['ARCH'] != 'native':

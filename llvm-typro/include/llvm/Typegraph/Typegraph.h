@@ -1,24 +1,12 @@
 #ifndef LLVM_TYPEGRAPHS_TYPEGRAPH_H
 #define LLVM_TYPEGRAPHS_TYPEGRAPH_H
 
+#include "basicdefs.h"
 #include "basegraph.h"
 #include "llvm/Typegraph/StringContainer.h"
 #include <memory>
 #include <string>
 
-#ifdef WITHOUT_LLVM
-#include <map>
-#include <set>
-#define MapCls std::map
-#define SetCls std::set
-#else
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseMapInfo.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/IR/Function.h"
-#define MapCls llvm::DenseMap
-#define SetCls llvm::DenseSet
-#endif
 
 namespace llvm {
 class Function;
@@ -74,7 +62,7 @@ inline bool operator<(const FunctionUsage &Lhs, const FunctionUsage &Rhs) {
  */
 struct CallInfo {
   Vertex V;
-  std::vector<Vertex> AllVertices;  // Including copies/layers of V
+  VectorCls<Vertex> AllVertices;  // Including copies/layers of V
   int NumArgs;
   bool IsResolvePoint = false;
 
@@ -111,7 +99,7 @@ struct InterfaceDesc {
   bool DoNotMinimize = false;
   bool IsExternal = false;
   bool IsDefined = false;
-  std::vector<Vertex> Types;
+  VectorCls<Vertex> Types;
 
   void serialize(std::ostream &OS) const;
 };
@@ -187,7 +175,7 @@ template <> struct DenseMapInfo<typegraph::FunctionUsage> {
 
 namespace typegraph {
 struct TGNode : public TypeContextPair {
-  std::vector<TypeContextPair> AdditionalNames;
+  VectorCls<TypeContextPair> AdditionalNames;
 
   // all functions that have been used with this type.
   // will also be filled with indirect function uses during computation

@@ -2,7 +2,7 @@ if (DEFINED TYPRO_LIBS_ONLY)
 	cmake_minimum_required(VERSION 3.4.3)
 	project(TYPRO_LIBS LANGUAGES C CXX)
 	set(ignoreMe "${TYPRO_LIBS_ONLY}")
-	include_directories("${CMAKE_SOURCE_DIR}/../../include")
+	include_directories("${CMAKE_SOURCE_DIR}/../../include" "${CMAKE_SOURCE_DIR}")
 	set(TUNE_ARGS "")
 else()
 	set(TUNE_ARGS "-march=native -mtune=native")
@@ -101,6 +101,8 @@ set(TYPRO_RT_SOURCES runtime/enforcing_rt.cpp
 		runtime/typegraph_binary_loader.h
 		runtime/AssemblyBuilder.cpp
 		runtime/AssemblyBuilder.h
+		runtime/ProtectedAllocator.cpp
+		runtime/ProtectedAllocator.h
 		Typegraph.cpp
 		TGCallGraph.cpp
 		abstract_map.h
@@ -110,7 +112,7 @@ set(TYPRO_RT_SOURCES runtime/enforcing_rt.cpp
 		${CMAKE_CURRENT_BINARY_DIR}/compute_function_uses.cpp)
 
 add_library(typro-rt SHARED ${TYPRO_RT_SOURCES})
-target_compile_definitions(typro-rt PUBLIC WITHOUT_LLVM)
+target_compile_definitions(typro-rt PUBLIC WITHOUT_LLVM RUNTIME_CUSTOM_CLASSES)
 target_link_options(typro-rt PRIVATE "${OpenMP_CXX_FLAGS}")
 # for the optimized tail call in tgLazyDispatcher<>, this function must not use stack variables.
 # that's true for -O2.

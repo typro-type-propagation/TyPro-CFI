@@ -42,9 +42,9 @@ class DynamicSymbolInfo {
 public:
   const std::string *DynamicSymbolCallName;
   // List of all dispatchers that receive targets from this dynamic symbol resolver. Indices in Runtime::Dispatchers
-  std::vector<size_t> DispatcherIndices;
+  std::vector<size_t, ProtectedAllocator<size_t>> DispatcherIndices;
   // Set of all functions this dispatcher already resolved so far
-  std::set<FunctionInfos> TargetFunctions;
+  std::set<FunctionInfos, std::less<FunctionInfos>, ProtectedAllocator<FunctionInfos>> TargetFunctions;
 
   DynamicSymbolInfo(const std::string *DynamicSymbolCallName) : DynamicSymbolCallName(DynamicSymbolCallName) {}
 };
@@ -53,15 +53,15 @@ struct TypegraphRuntime {
   std::mutex Mutex;
 
   TypeGraph Graph;
-  std::vector<std::tuple<const char *, void **, long>> LoadableGraphData;
-  std::vector<long> Modules;
+  std::vector<std::tuple<const char *, void **, long>, ProtectedAllocator<std::tuple<const char *, void **, long>>> LoadableGraphData;
+  std::vector<long, ProtectedAllocator<long>> Modules;
   bool MainModuleSeen = false;
 
-  std::vector<std::unique_ptr<FunctionInfos>> Functions;
-  std::vector<DispatcherInfos> Dispatchers;
-  std::map<const std::string *, std::set<FunctionInfos>> ResolvePoints;
-  std::map<void *, long> DynamicSymbolToId;
-  std::map<const std::string *, std::unique_ptr<DynamicSymbolInfo>> DynamicSymbolInfos;
+  std::vector<std::unique_ptr<FunctionInfos>, ProtectedAllocator<std::unique_ptr<FunctionInfos>>> Functions;
+  std::vector<DispatcherInfos, ProtectedAllocator<DispatcherInfos>> Dispatchers;
+  std::map<const std::string *, std::set<FunctionInfos>, std::less<const std::string *>, ProtectedAllocator<std::pair<const std::string *const, std::set<FunctionInfos>>>> ResolvePoints;
+  std::map<void *, long, std::less<void *>, ProtectedAllocator<std::pair<void *const, long>>> DynamicSymbolToId;
+  std::map<const std::string *, std::unique_ptr<DynamicSymbolInfo>, std::less<const std::string *>, ProtectedAllocator<std::pair<const std::string *const, std::unique_ptr<DynamicSymbolInfo>>>> DynamicSymbolInfos;
   long NextDynamicSymbolID = 0x100000;
 
   inline void registerGraph(const char *GraphData, void **References, long ModuleID) {
@@ -187,14 +187,14 @@ struct TypegraphRuntime {
       if (Dispatchers[Index].Targets.size() != Dispatchers[Index].CurrentImplHandlesTargets) {
         // if (Index < (sizeof(LazyDispatchers) / sizeof(void *))) {
           if (pageOf(Dispatchers[Index].DispatcherAddr) != rwpage) {
-            if (*Dispatchers[Index].DispatcherAddr == LazyDispatchers.at(Index))
+            if (*Dispatchers[Index].DispatcherAddr == LazyDispatchers->at(Index))
               continue;
             makeRO(rwpage);
             rwpage = pageOf(Dispatchers[Index].DispatcherAddr);
             makeRW(rwpage);
           }
           // dprintf("Writing lazy to %ld = %p\n", Index, (void *)Dispatchers[Index].DispatcherAddr);
-          *Dispatchers[Index].DispatcherAddr = LazyDispatchers.at(Index);
+          *Dispatchers[Index].DispatcherAddr = LazyDispatchers->at(Index);
         // } else {
         //   fprintf(stderr, "Requires %ld lazy dispatchers...\n", Dispatchers.size());
         //   assert(false && "Not implemented (too much dispatchers for now)");
@@ -266,6 +266,10 @@ struct TypegraphRuntime {
         Dispatchers[Index].CurrentImplHandlesTargets = Dispatchers[Index].Targets.size();
         if (DEBUG_OUTPUT)
           Clock.report("[RT] Building dispatcher");
+#ifdef ASM_BUILDER_CHECKING
+        AsmBuilder.startChecking();
+        AsmBuilder.generateDispatcher(Index, Dispatchers[Index].Targets, Dispatchers[Index].DispatcherAddr, CurrentID);
+#endif
       }
       makeRO((void *) Dispatchers[Index].DispatcherAddr);
     }
@@ -298,6 +302,10 @@ struct TypegraphRuntime {
           AssemblyBuilder AsmBuilder;
           AsmBuilder.generateDispatcher(Index, Dispatchers[Index].Targets, Dispatchers[Index].DispatcherAddr,-1);
           Dispatchers[Index].CurrentImplHandlesTargets = Dispatchers[Index].Targets.size();
+#ifdef ASM_BUILDER_CHECKING
+          AsmBuilder.startChecking();
+          AsmBuilder.generateDispatcher(Index, Dispatchers[Index].Targets, Dispatchers[Index].DispatcherAddr,-1);
+#endif
         }
       }
     }
@@ -476,8 +484,9 @@ TypegraphRuntime *Runtime = nullptr;
 } // namespace typegraph
 
 [[maybe_unused]] EXTERN void __tg_register_graph(const char *GraphData, void **References, long ModuleID) {
+  ProtectedAllocatorWriteableScope Scope;
   if (typegraph::rt::Runtime == nullptr)
-    typegraph::rt::Runtime = new typegraph::rt::TypegraphRuntime();
+    typegraph::rt::Runtime = new (ProtectedAllocator<typegraph::rt::TypegraphRuntime>().allocate(1)) typegraph::rt::TypegraphRuntime();
   typegraph::rt::Runtime->registerGraph(GraphData, References, ModuleID);
 }
 
@@ -486,11 +495,16 @@ void __tg_dynamic_error(size_t Index, long ID) {
 }
 
 long __tg_dlsym_to_id(typegraph::rt::DynamicSymbolInfo *DynamicSymbolCall, void *Symbol) {
+  ProtectedAllocatorWriteableScope Scope;
   return typegraph::rt::Runtime->resolveDynamicSymbol(DynamicSymbolCall, Symbol);
 }
 
 void *__tg_resolve_symbol(const char *Name, long ID) {
+  ProtectedAllocatorWriteableScope Scope;
   return typegraph::rt::Runtime->resolvePoint(Name, ID);
 }
 
-void *generateDispatcher(int Index, uintptr_t CurrentID) { return typegraph::rt::Runtime->generateDispatcher(Index, CurrentID); }
+void *generateDispatcher(int Index, uintptr_t CurrentID) {
+  ProtectedAllocatorWriteableScope Scope;
+  return typegraph::rt::Runtime->generateDispatcher(Index, CurrentID);
+}

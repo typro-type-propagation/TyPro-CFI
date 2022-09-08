@@ -5,6 +5,12 @@ The relevant publication is currently under submission.
 TyPro is a fork of LLVM 10, including Clang and lld.
 It can be used as a drop-in replacement for gcc or clang in most situations.
 
+TyPro has been presented in our [ACSAC'22](https://www.acsac.org/2022/) paper ["TyPro: Forward CFI for C-Style Indirect Function Calls Using Type Propagation"](https://publications.cispa.saarland/3768/) by Markus Bauer, Ilya Grishchenko, and Christian Rossow.
+If you use TyPro in future work, you can [cite it like this](https://publications.cispa.saarland/cgi/export/eprint/3768/BibTeX/cispa-eprint-3768.bib).
+For questions contact Markus Bauer <markus.bauer@cispa.saarland>.
+
+If you're here for the **Artifact Evaluation**, check out [ArtifactEvaluation.md](ArtifactEvaluation.md).
+
 ## Installation
 We tested TyPro on Ubuntu 20.04 and Debian 11. Through it will likely work on other architectures, we can't guarantee that.
 
@@ -64,18 +70,19 @@ Additional options help to fine-tune the protection for your applications, to de
 ## Building musl libc sysroot
 To build a protected musl libc, you also need a native, non-protecting clang and lld (both version 10).
 It is necessary to build Typro's runtime library, which can't be protected itself.
-The docker container already contains a pre-built musl libc, you need these steps only for non-docker setups.
+The docker container already contains a pre-built musl libc, you need these steps *only for non-docker setups*.
 
 - `cd scripts`
 - `./build-libraries-rt.sh`
 - `./build-libraries.sh`
 
-The result should be an enforcing musl sysroot in `sysroots/x86_64-linux-musl/`.
+The result should be an enforcing musl sysroot in `sysroots/x86_64-linux-musl/`. 
+Use `sysroots/x86_64-linux-musl/bin/my_clang` as compiler.
 
 
 
 ## Running tests
-We provide 150+ unit tests you can use to check the compiler and your setup.
+We provide 220+ unit tests you can use to check the compiler and your setup.
 
 **Docker**: `docker run --rm --workdir /typro/tests typro python3 -u -m unittest typegraph_test.py`
 
@@ -125,6 +132,8 @@ runspec -c spec-clang-lto-o3-typro-shielded.cfg --noreportable -i test -n 1 bzip
 
 In a **native** environment, use the configuration file from the `scripts` directory. 
 Create a symlink named `typro_build` in SPEC's root, pointing to a build directory of TyPro.
+For MUSL libc, check out [scripts/spec-clang-lto-o3-typro-musl.cfg](scripts/spec-clang-lto-o3-typro-musl.cfg) and [scripts/spec-clang-lto-o3-typro-musl-dynamic.cfg](scripts/spec-clang-lto-o3-typro-musl-dynamic.cfg).
+You have to patch the path to the compiler and sysroot, search for `/typro`.
 
 
 ## Testing example programs
@@ -139,32 +148,19 @@ Log files are created in `/typro/logs`. At the end of each `build-all-*-enforce.
 TyPro can cross-compile programs for AArch64 (64-bit ARM) and MIPS64el (64bit little endian MIPS), we provide scripts to set up a build environment.
 To this end, you will need a "sysroot", which is a partial image of a minimal linux for the target architecture.
 It contains all libraries and include files necessary to compile against this system, and test programs using _qemu_.
-Setup is similar in docker and native, except the path of the scripts.
+In the docker container, sysroots *are already created*.
 
-The sysroot can't be created in a docker container for lack of permissions. 
-Therefore you'll have to build sysroots on your native system.
-After initial creation, sysroots are archived in .tar.xz files in `sysroots/` and can be re-used in the docker container or on other systems.
-To do so, simply extract the archives in the sysroots folder.
+On your native system build the sysroots:
+```shell
+apt install -y binfmt-support qemu qemu-user qemu-user-static
+scripts/build-sysroots.sh
+scripts/build-runtime-libs.sh
+```
 
-On your native system:
-- Install dependencies: `apt install -y binfmt-support qemu qemu-user qemu-user-static debootstrap`
-- Build sysroots: `sudo ./scripts/crosscompile-create-sysroots.sh`
-
-Install sysroots in docker (skip for native setup):
-- Install dependencies: `apt install -y binfmt-support qemu qemu-user qemu-user-static` and `apt install --no-install-recommends clang-10`
-- Copy sysroots to docker (run command on host): `for f in sysroots/sysroot-*.tar.xz; do docker cp $f typro:/tmp/; done`
-- Install sysroots:
-  ```
-  mkdir -p /typro/sysroots
-  cd /typro/sysroots
-  for f in /tmp/sysroot-*.tar.xz; do tar -xf $f; done
-  ```
-
-Setup cross-compilation (adjust paths for native setups):
+Test cross-compilation setup (adjust paths for native setups):
 - Test sysroot and qemu:
   - `qemu-aarch64 -L /typro/sysroots/aarch64-linux-gnu/ /typro/sysroots/aarch64-linux-gnu/usr/bin/id`
   - `qemu-mips64el -L /typro/sysroots/mips64el-linux-gnuabi64/ /typro/sysroots/mips64el-linux-gnuabi64/usr/bin/id`
-- Build and install runtime libraries: `scripts/crosscompile-prepare-symlinks.sh && scripts/crosscompile-runtime-libs.sh` (if you don't have `clang-10` available, patch the script to another existing cross-compiler)
 - Run tests against cross-compiler:
   - `cd tests && ARCH=aarch64 python3 -u -m unittest typegraph_test.py`
   - `cd tests && ARCH=mips64el python3 -u -m unittest typegraph_test.py`

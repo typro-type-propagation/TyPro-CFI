@@ -25,7 +25,7 @@ struct AsmWriter {
     for (auto &J: ErrorCases)
       J.setTarget(Builder.currentOffset());
     for (auto &I: ErrorCasesAbsolute) {
-      *((char**) Builder.byOffset(I)) = Builder.currentPos();
+      Builder.write64At(I, (uintptr_t) Builder.currentPos());
     }
   }
 
@@ -38,7 +38,7 @@ struct AsmWriter {
   JmpTarget writeBNE(uintptr_t C) {
     writeConstantToAT(C);
     // 15c10001        bne     t2, at, 0x20
-    Builder.write32(0x15c10000);
+    Builder.write32Mask(0x15c10000, ~MIPS_BRANCH_REL_MASK);
     size_t Offset = Builder.currentOffset();
     Builder.write32(0x0);  // https://en.wikipedia.org/wiki/Delay_slot
     return JmpTarget(Builder, Offset, MIPS_BRANCH_REL);
@@ -61,7 +61,7 @@ struct AsmWriter {
       //   4:   10200001        beqz    at, 0xc
       Builder.write32(0x2dc10000 | C);
     }
-    Builder.write32(0x10200000);
+    Builder.write32Mask(0x10200000, ~MIPS_BRANCH_REL_MASK);
     size_t Offset = Builder.currentOffset();
     Builder.write32(0x0); // nop
     return JmpTarget(Builder, Offset, MIPS_BRANCH_REL);
@@ -69,7 +69,7 @@ struct AsmWriter {
 
   JmpTarget writeJump(bool WithDelaySlot = true) {
     // 08000000        j       0x0
-    Builder.write32(0x08000000);
+    Builder.write32Mask(0x08000000, ~MIPS_BRANCH_ABS_MASK);
     size_t Offset = Builder.currentOffset();
     if (WithDelaySlot) {
       Builder.write32(0x0); // nop
@@ -119,7 +119,7 @@ struct AsmWriter {
       //  10:   00000000        nop
       Builder.write32(0x000e78f8);
       Builder.write32(0x01f9782d);
-      Builder.write32(0xddf90000);
+      Builder.write32Mask(0xddf90000, ~MIPS_BRANCH_MEMREL16_MASK);
       size_t Offset = Builder.currentOffset();
       Builder.write32(0x03200008);
       Builder.write32(0x0);
@@ -259,7 +259,7 @@ struct AsmWriter {
     Builder.write32(0x0000000d);
   }
 
-  void genIfThenElseChain(std::vector<FunctionInfos> &Targets, FunctionID PreferredID) {
+  void genIfThenElseChain(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, FunctionID PreferredID) {
     auto PreferredFunc = std::find(Targets.begin(), Targets.end(), PreferredID);
     if (PreferredFunc != Targets.end()) {
       auto Jmp = writeBNE(PreferredID);
@@ -289,7 +289,7 @@ struct AsmWriter {
    * @param X16HasLastBeenComparedTo If the last instruction before this tree was a "cmp r11, <const>", pass this
    * constant. Saves one instruction.
    */
-  void genTree(std::vector<FunctionInfos> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max) {
+  void genTree(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max) {
     // only 1 target
     if (EndIndex - StartIndex == 1) {
       if (Min != Max) {
@@ -322,7 +322,7 @@ struct AsmWriter {
     genTree(Targets, PivotIndex, EndIndex, Targets[PivotIndex].ID, Max);
   }
 
-  size_t genJumptable(std::vector<FunctionInfos> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max) {
+  size_t genJumptable(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, size_t StartIndex, size_t EndIndex, FunctionID Min, FunctionID Max) {
     size_t Offset = 0;
     if (Targets[StartIndex].ID - Min >= 4) {
       Offset = Targets[StartIndex].ID;
@@ -346,7 +346,7 @@ struct AsmWriter {
         I++;
       } else {
         ErrorCasesAbsolute.push_back(Builder.currentOffset());
-        Builder.write((uint64_t) 0);
+        Builder.write("\x00\x00\x00\x00\x00\x00\x00\x00", 8, 0);
       }
     }
 
@@ -354,7 +354,7 @@ struct AsmWriter {
     return Offset;
   }
 
-  void genSwitch(std::vector<FunctionInfos> &Targets, size_t StartIndex, size_t EndIndex, FunctionID PreferredID) {
+  void genSwitch(const std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, size_t StartIndex, size_t EndIndex, FunctionID PreferredID) {
     if (EndIndex - StartIndex <= 4) {
       genIfThenElseChain(Targets, PreferredID);
     } else {
@@ -371,7 +371,7 @@ struct AsmWriter {
     }
   }
 
-  void genSwitch(std::vector<FunctionInfos> &Targets, FunctionID PreferredID) {
+  void genSwitch(std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> &Targets, FunctionID PreferredID) {
     std::sort(Targets.begin(), Targets.end());
     genSwitch(Targets, 0, Targets.size(), PreferredID);
   }

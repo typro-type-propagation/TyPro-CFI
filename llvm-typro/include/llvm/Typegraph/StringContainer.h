@@ -1,17 +1,16 @@
 #ifndef LLVM_TYPEGRAPHS_STRINGCONTAINER_H
 #define LLVM_TYPEGRAPHS_STRINGCONTAINER_H
 
+#include "basicdefs.h"
+
 #ifndef WITHOUT_LLVM
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include <memory>
 #else
-#include <map>
-#include <memory>
 #include <string>
 #endif
-#include <vector>
 
 namespace typegraph {
 
@@ -40,7 +39,7 @@ public:
 
 #else
 
-  std::map<std::string, std::unique_ptr<StringContainerEntry>> Pointers;
+  MapCls<std::string, std::unique_ptr<StringContainerEntry>> Pointers;
   // std::map<const std::string*, int32_t> UniqueIds;
 
 public:
@@ -64,7 +63,7 @@ public:
 
 template<class T>
 class StringContainerMap {
-  std::vector<T> Entries;
+  VectorCls<T> Entries;
 
   inline int32_t getID(const std::string *Str) {
     return ((const StringContainerEntry *) Str)->MapIndex;

@@ -8,7 +8,7 @@ namespace typegraph {
 
 
 
-BinaryStreamReader loadTypegraphFromBinary(typegraph::TypeGraph &Graph, const char *GraphData, std::vector<std::unique_ptr<rt::FunctionInfos>> &Functions, void** &References) {
+BinaryStreamReader loadTypegraphFromBinary(typegraph::TypeGraph &Graph, const char *GraphData, std::vector<std::unique_ptr<rt::FunctionInfos>, ProtectedAllocator<std::unique_ptr<rt::FunctionInfos>>> &Functions, void** &References) {
   BinaryStreamReader Stream(GraphData);
   long NumFunctions = Stream.readLong();
   long NumVertices = Stream.readLong();

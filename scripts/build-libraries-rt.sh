@@ -74,6 +74,25 @@ install_deb() {  # <url> <filename>
   rm -rf tmp
 }
 
+download_and_install_deb() {
+  package_name_for_regex="${1/+/\\+}"
+  # download package index
+  if [ ! -f /tmp/Packages-Sysroots-$DEB_ARCH ]; then
+    wget "http://ftp.de.debian.org/debian/dists/bullseye/main/binary-$DEB_ARCH/Packages.gz" -O/tmp/Packages-Sysroots-$DEB_ARCH.gz
+    gzip -d /tmp/Packages-Sysroots-$DEB_ARCH.gz
+  fi
+  # parse the package index
+  url=$(grep -Pzo '(?s)Package: '"$package_name_for_regex"'\n.*?\n\n' /tmp/Packages-Sysroots-$DEB_ARCH | grep -Poa '^Filename: \K.*$' || true)
+  if [ -z "$url" ]; then
+    echo "Package not found: $1 ($DEB_ARCH)"
+    return 1
+  fi
+  # download and install the package
+  url="http://ftp.de.debian.org/debian/$url"
+  echo "[+] Installing $(basename $url) from '$url' ..."
+  install_deb "$url" "$(basename $url)"
+}
+
 make_musl_libc() {
   mkdir -p "$SYSROOT"
   WORKDIR="$SYSROOT-work"
@@ -150,8 +169,8 @@ make_clang_scripts() {
 }
 
 download_dependencies() {
-  install_deb "http://ftp.de.debian.org/debian/pool/main/g/gcc-10/libgcc-10-dev_10.2.1-6_$DEB_ARCH.deb" "libgcc-10-dev_10.2.1-6_$DEB_ARCH.deb"
-  install_deb "http://ftp.de.debian.org/debian/pool/main/l/linux/linux-libc-dev_5.10.106-1_$DEB_ARCH.deb" "linux-libc-dev_5.10.106-1_$DEB_ARCH.deb"
+  download_and_install_deb libgcc-10-dev
+  download_and_install_deb linux-libc-dev
 }
 
 make_libcxx() {
@@ -374,37 +393,21 @@ download_dependencies
 make_musl_libc
 make_clang_scripts
 make_libcxx
-#make_compilerrt
 make_openmp
 make_rt_libs
 
 
 FLAGS="--target=aarch64-linux-musl -fPIC"
-LINK_FLAGS="-Wl,-z,notext"
+LINK_FLAGS="-Wl,-z,notext -fuse-ld=lld"
 TARGET="aarch64-linux-musl"
-SYSROOT="$ROOT/sysroots/aarch64-linux-musl"
+SYSROOT="$ROOT/sysroots/aarch64-linux-musl-ref"
+PROTECTED_SYSROOT="$ROOT/sysroots/aarch64-linux-musl"
 DEB_ARCH=arm64
 DEB_TARGET=aarch64-linux-gnu
-#download_dependencies
-#make_musl_libc
-#make_clang_scripts
-#make_libcxx
-
-SYSROOT="$ROOT/sysroots/aarch64-linux-gnu-ref"
-#download_ref_debs
-
-
-
-SYSROOT="$ROOT/sysroots/arm-linux-musleabihf"
-FLAGS="--target=armv7-linux-musleabihf -mfloat-abi=hard -fPIC --gcc-toolchain=$SYSROOT/usr/lib/gcc/arm-linux-gnueabihf/10/"
-LINK_FLAGS="-L$SYSROOT/usr/lib/gcc/arm-linux-gnueabihf/10/"
-TARGET="arm-linux-musleabihf"
-DEB_ARCH=armhf
-DEB_TARGET=arm-linux-gnueabihf
-#download_dependencies
-#make_musl_libc
-#make_clang_scripts
-#make_libcxx
-
-
-# arm-linux-musleabi/arm-linux-musleabihf
+ARCH_MUSL=aarch64
+download_dependencies
+make_musl_libc
+make_clang_scripts
+make_libcxx
+make_openmp
+make_rt_libs

@@ -15,11 +15,11 @@ namespace souffle {
 extern size_t max_number_of_nodes;
 } // namespace souffle
 
-#if defined(__aarch64__) || defined(_M_ARM64)
-#define DOMAIN_TYPE int64_t
-#else
+//#if defined(__aarch64__) || defined(_M_ARM64)
+//#define DOMAIN_TYPE int64_t
+//#else
 #define DOMAIN_TYPE int32_t
-#endif
+//#endif
 
 namespace typegraph {
 
@@ -34,12 +34,14 @@ void InterfaceDesc::serialize(std::ostream &OS) const {
 }
 
 TypeGraph::TypeGraph()
-    : SymbolContainer(std::make_shared<StringContainer>()), CallGraph(std::make_shared<TGCallGraph>(SymbolContainer)) {
+    : SymbolContainer(std::allocate_shared<StringContainer>(DefaultAlloc<StringContainer>())),
+      CallGraph(std::allocate_shared<TGCallGraph>(DefaultAlloc<TGCallGraph>(), SymbolContainer)) {
   parserReset();
 }
 
 TypeGraph::TypeGraph(std::shared_ptr<StringContainer> SymbolContainer)
-    : SymbolContainer(SymbolContainer), CallGraph(std::make_shared<TGCallGraph>(SymbolContainer)) {
+    : SymbolContainer(SymbolContainer),
+      CallGraph(std::allocate_shared<TGCallGraph>(DefaultAlloc<TGCallGraph>(), SymbolContainer)) {
   parserReset();
 }
 

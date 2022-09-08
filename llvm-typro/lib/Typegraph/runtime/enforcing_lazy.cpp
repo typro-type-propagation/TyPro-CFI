@@ -19,33 +19,45 @@ void tgLazyDispatcher() {
 }
 #endif
 
-std::vector<void *> LazyDispatchers = {
+std::vector<void *, ProtectedAllocator<void *>> *LazyDispatchers = nullptr;
+
+static void __attribute__((constructor)) initLazyDispatchersAndProtectedHeap() {
+  ProtectedAllocatorWriteableScope Scope;
+  LazyDispatchers = new (ProtectedAllocator<std::vector<void *, ProtectedAllocator<void *>>>().allocate(1)) std::vector<void *, ProtectedAllocator<void *>>();
 #if defined(__x86_64__) || defined(_M_X64)
-    (void*) tgLazyDispatcher<0>,
-    (void*) tgLazyDispatcher<1>,
-    (void*) tgLazyDispatcher<2>,
-    (void*) tgLazyDispatcher<3>,
-    (void*) tgLazyDispatcher<4>,
-    (void*) tgLazyDispatcher<5>,
-    (void*) tgLazyDispatcher<6>,
-    (void*) tgLazyDispatcher<7>,
-    (void*) tgLazyDispatcher<8>,
-    (void*) tgLazyDispatcher<9>,
-    (void*) tgLazyDispatcher<10>,
-    (void*) tgLazyDispatcher<11>,
-    (void*) tgLazyDispatcher<12>,
-    (void*) tgLazyDispatcher<13>,
-    (void*) tgLazyDispatcher<14>,
-    (void*) tgLazyDispatcher<15>,
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<0>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<1>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<2>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<3>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<4>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<5>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<6>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<7>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<8>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<9>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<10>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<11>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<12>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<13>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<14>);
+  LazyDispatchers->push_back((void *)tgLazyDispatcher<15>);
 #endif
-};
+}
+
+static void __attribute__((destructor)) prepareProtectedHeapForFree() {
+  protectedMakeWriteable();
+}
 
 void assertLazyDispatchersExist(size_t Max) {
-  if (LazyDispatchers.size() < Max) {
+  if (LazyDispatchers->size() < Max) {
     AssemblyBuilder Builder;
-    char *Ptr = Builder.generateLazyDispatchers(LazyDispatchers.size(), Max + 5);
-    for (size_t I = LazyDispatchers.size(); I < Max + 5; I++) {
-      LazyDispatchers.push_back((void *)Ptr);
+    char *Ptr = Builder.generateLazyDispatchers(LazyDispatchers->size(), Max + 5);
+#ifdef ASM_BUILDER_CHECKING
+    Builder.startChecking();
+    Builder.generateLazyDispatchers(LazyDispatchers->size(), Max + 5);
+#endif
+    for (size_t I = LazyDispatchers->size(); I < Max + 5; I++) {
+      LazyDispatchers->push_back((void *)Ptr);
       Ptr += 16;
     }
   }

@@ -40,9 +40,9 @@ nice -5 make -j$(nproc)
 
 echo "[DONE MAKE]"
 
-make test
+#make test
 
-echo "[DONE TESTS]"
+#echo "[DONE TESTS]"
 
 echo "To re-run tests:"
 echo "  cd $SCRIPT_DIR/memcached/memcached-${memcached_v}-$MODE"

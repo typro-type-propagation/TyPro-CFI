@@ -1,11 +1,12 @@
 #ifndef LLVM_TYPEGRAPHS_ENFORCING_RT_H
 #define LLVM_TYPEGRAPHS_ENFORCING_RT_H
 
+#include "ProtectedAllocator.h"
+#include <algorithm>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
-#include <set>
-#include <algorithm>
 
 #define DEBUG_OUTPUT 0
 #if DEBUG_OUTPUT == 1
@@ -58,8 +59,8 @@ struct DispatcherInfos {
   long ModuleID; // the module that defined this dispatcher - functions from this module should already be handled (?)
 
   size_t CurrentImplHandlesTargets = 0xffffffff; // If CurrentImplHandlesTargets != Targets => Dispatcher must be re-generated
-  std::vector<FunctionInfos> Targets;
-  std::set<FunctionID> AlreadyHandledTargets; // Targets handled in the program's code before calling the dispatcher
+  std::vector<FunctionInfos, ProtectedAllocator<FunctionInfos>> Targets;
+  std::set<FunctionID, std::less<FunctionID>, ProtectedAllocator<FunctionID>> AlreadyHandledTargets; // Targets handled in the program's code before calling the dispatcher
 
   inline DispatcherInfos(const std::string *CallName, void **DispatcherAddr, long ModuleID)
       : CallName(CallName), DispatcherAddr(DispatcherAddr), ModuleID(ModuleID) {}
@@ -78,7 +79,7 @@ struct DispatcherInfos {
 };
 
 // Pre-generated code
-extern std::vector<void *> LazyDispatchers;
+extern std::vector<void *, ProtectedAllocator<void *>> *LazyDispatchers;
 void assertLazyDispatchersExist(size_t Max);
 void emptyTargetSetHandler(void);
 
