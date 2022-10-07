@@ -153,6 +153,12 @@ cd /typro/examples
 ./redis_docker.sh enforce  # redis must be built with dynamic linking support on
 ```
 
+After compilation, you have a set of files for each program:
+- `...-instrument/.../tgcfi.json` Target sets of TyPro
+- `...-icall/.../icfi_icall.json` Target sets of Clang CFI
+- `...-instrument/.../ifcc.json` Target sets of IFCC
+- `...-instrument/.../calltargets*.json` Actually called functions for each binary
+
 
 ### Testing Apache Httpd
 Start the protected server, then test it with the curl commands below (which you execute in a second shell within docker):

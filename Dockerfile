@@ -61,7 +61,7 @@ RUN apt-key adv --keyserver keys.openpgp.org --recv-key 612DEFB798507F25 && \
         qemu-user qemu-user-static binfmt-support \
         && \
     apt-get clean && \
-    pip3 install pycairo numpy && \
+    pip3 install pycairo numpy pwntools && \
     python3 -m pip install -U matplotlib && \
     mkdir -p /typro/scripts /typro/sysroots && \
     useradd -d /var/ftp -m -r -s /usr/sbin/nologin ftp && \

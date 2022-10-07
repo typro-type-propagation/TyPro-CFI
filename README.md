@@ -5,9 +5,23 @@ The relevant publication is currently under submission.
 TyPro is a fork of LLVM 10, including Clang and lld.
 It can be used as a drop-in replacement for gcc or clang in most situations.
 
-TyPro has been presented in our [ACSAC'22](https://www.acsac.org/2022/) paper ["TyPro: Forward CFI for C-Style Indirect Function Calls Using Type Propagation"](https://publications.cispa.saarland/3768/) by Markus Bauer, Ilya Grishchenko, and Christian Rossow.
-If you use TyPro in future work, you can [cite it like this](https://publications.cispa.saarland/cgi/export/eprint/3768/BibTeX/cispa-eprint-3768.bib).
+TyPro has been presented in our [ACSAC'22](https://www.acsac.org/2022/) paper ["TyPro: Forward CFI for C-Style Indirect Function Calls Using Type Propagation"](https://publications.cispa.saarland/3768/) by [Markus Bauer, Ilya Grishchenko, and Christian Rossow](https://cispa.saarland/group/rossow/).
 For questions contact Markus Bauer <markus.bauer@cispa.saarland>.
+If you use TyPro in future work, you can [cite it like this](https://publications.cispa.saarland/cgi/export/eprint/3768/BibTeX/cispa-eprint-3768.bib):
+```
+@inproceedings{Bauer2021NoVT,
+           title = {TyPro: Forward CFI for C-Style Indirect Function Calls Using Type Propagation},
+          author = {Markus Bauer and Ilya Grishchenko and Christian Rossow},
+       publisher = {Association for Computing Machinery},
+           month = {12},
+            year = {2022},
+       booktitle = {Annual Computer Security Applications Conference (ACSAC 2022)},
+         journal = {Proceedings of the 38th Annual Computer Security Applications Conference},
+             url = {https://publications.cispa.saarland/3768/},
+             doi = {10.1145/3564625.3564627}
+}
+```
+
 
 If you're here for the **Artifact Evaluation**, check out [ArtifactEvaluation.md](ArtifactEvaluation.md).
 
