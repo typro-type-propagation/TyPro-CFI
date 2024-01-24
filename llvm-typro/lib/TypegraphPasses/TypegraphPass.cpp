@@ -321,11 +321,17 @@ public:
             auto *TypegraphNode = Ins.getMetadata(LLVMContext::MD_typegraph_node);
             assert(TypegraphNode);
             auto CallName = cast<MDString>(TypegraphNode->getOperand(0))->getString();
-            (*CallMap)[CallName] = llvm::json::Array();
-            auto *Arr = CallMap->getArray(CallName);
+            callNameHash = CallName + "_hash";
+            callNameTargets = CallName + "_target";
+            (*CallMap)[CallNameTargets] = llvm::json::Array();
+            auto *Arr = CallMap->getArray(CallNameTargets);
+            (*CallMap)[CallNameHash] = llvm::json::Array();
+            auto *HashArr = CallMap->getArray(CallNameHash);
             (*CallMapArgnum)[CallName] = llvm::json::Array();
             auto *ArrArgNum = CallMapArgnum->getArray(CallName);
-
+            for (auto &Ins: Bb) {
+              HashArr->push_back(Ins.getOpcodeName());
+            }
             for (auto &Use : getFunctionUsesForIndirectCall(Call)) {
               if (Use.Function) {
                 Arr->push_back(Use.Function->getName());
