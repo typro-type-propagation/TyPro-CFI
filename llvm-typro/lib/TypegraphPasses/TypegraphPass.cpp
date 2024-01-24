@@ -307,8 +307,10 @@ public:
   void writeCallTargetOutput() {
     llvm::json::Object J;
     J["tg_targets"] = llvm::json::Object();
+    J["tg_targets_hash"] = llvm::json::Object();
     J["tg_targets_argnum"] = llvm::json::Object();
     auto *CallMap = J.getObject("tg_targets");
+    auto *CallMapHash = J.getObject("tg_targets_hash");
     auto *CallMapArgnum = J.getObject("tg_targets_argnum");
 
     for (auto &F : M.functions()) {
@@ -317,16 +319,13 @@ public:
           if (auto *Call = dyn_cast<CallBase>(&Ins)) {
             if (!Call->isIndirectCall())
               continue;
-
             auto *TypegraphNode = Ins.getMetadata(LLVMContext::MD_typegraph_node);
             assert(TypegraphNode);
             auto CallName = cast<MDString>(TypegraphNode->getOperand(0))->getString();
-            callNameHash = CallName + "_hash";
-            callNameTargets = CallName + "_target";
-            (*CallMap)[CallNameTargets] = llvm::json::Array();
-            auto *Arr = CallMap->getArray(CallNameTargets);
-            (*CallMap)[CallNameHash] = llvm::json::Array();
-            auto *HashArr = CallMap->getArray(CallNameHash);
+            (*CallMap)[CallName] = llvm::json::Array();
+            auto *Arr = CallMap->getArray(CallName);
+            (*CallMapHash)[CallName] = llvm::json::Array();
+            auto *HashArr = CallMapHash->getArray(CallName);
             (*CallMapArgnum)[CallName] = llvm::json::Array();
             auto *ArrArgNum = CallMapArgnum->getArray(CallName);
             for (auto &Ins: Bb) {
