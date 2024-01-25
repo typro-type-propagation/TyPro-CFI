@@ -24,5 +24,8 @@ for i in range(len(data_arr)):
     print(address)
     mem_set.append(hex(address))
 
+with open("address.txt", "w") as file:
+    for item in mem_set:
+        file.write(item + "\n")
 print(mem_set)
 
