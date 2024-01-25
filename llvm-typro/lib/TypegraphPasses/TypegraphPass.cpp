@@ -312,6 +312,8 @@ public:
     auto *CallMap = J.getObject("tg_targets");
     auto *CallMapHash = J.getObject("tg_targets_hash");
     auto *CallMapArgnum = J.getObject("tg_targets_argnum");
+    LLVMContext &Context = M.getContext();
+    IRBuilder<> Builder(Context);
 
     for (auto &F : M.functions()) {
       for (auto &Bb : F) {
@@ -331,6 +333,22 @@ public:
             for (auto &Ins: Bb) {
               HashArr->push_back(Ins.getOpcodeName());
             }
+            // llvm::errs() << "Indirect Call Function name: " << F.getName() << "\n";
+            BlockAddress *blockAddress = BlockAddress::get(&F, &Bb);
+            // llvm::errs() << "BA:" << blockAddress << "\n";
+            Builder.SetInsertPoint(&Bb);
+            Value *result = Builder.CreatePtrToInt(blockAddress, Type::getInt64Ty(Context));
+            // llvm::errs() << "result:" << result << "\n";
+            Constant *resultConstant = dyn_cast<Constant>(result);
+            if (!resultConstant) {
+              // llvm::errs() << "convert failed"<< "\n";
+            }
+            // llvm::errs() << "resultConstant:" << resultConstant << "\n";
+            GlobalVariable *MyVariable =
+                new GlobalVariable(M, Type::getInt64Ty(Context), false, GlobalValue::ExternalLinkage, resultConstant,
+                                   "myVariable", nullptr, GlobalValue::NotThreadLocal, 0, true);
+            // llvm::errs() << "Setting section for MyVariable\n";
+            MyVariable->setSection(".section_for_indirectcall");
             for (auto &Use : getFunctionUsesForIndirectCall(Call)) {
               if (Use.Function) {
                 Arr->push_back(Use.Function->getName());
@@ -353,6 +371,7 @@ public:
   // get the BbAddress that contains indirect call
   // write them into myVariable
   // write myVaribale into ".section_for_indirectcall" in a new binary
+  /*
   void addIndirectCallBbAddressIntoBinary(){
     LLVMContext &Context = M.getContext();
     IRBuilder<> Builder(Context);
@@ -386,6 +405,7 @@ public:
       }
     }
 }
+*/
 
   void addSimpleEnforcement() {
     std::vector<CallBase*> CallsToProtect;
@@ -668,7 +688,6 @@ public:
 
     if (Settings.tgcfi_output) {
       writeCallTargetOutput();
-      addIndirectCallBbAddressIntoBinary();
     }
 
     if (Settings.instrument_collectcalltargets) {
