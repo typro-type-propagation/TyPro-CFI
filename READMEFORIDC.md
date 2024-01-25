@@ -1,4 +1,4 @@
-TyPro with Indirectcall information: The "Ryan" branch is the most updated code
+TyPro with Indirectcall information: The "Ryan" branch is the  updated code
 =============================================================================
 
 what we have done:
@@ -16,6 +16,7 @@ what we have done:
 2. `export CXX=/home/Typro/TyPro-CFI/build/bin/clang++`
 3. `export TG_CFI_OUTPUT=auto`
 4. `export TG_ICFI_OUTPUT=auto`
+5. `export TG_ENFORCE=false`
 ## 4. Test
 1. `cd test-indirectCall`
 2. `$CC test.c`
