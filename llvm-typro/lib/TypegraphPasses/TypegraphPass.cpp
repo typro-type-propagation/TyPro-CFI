@@ -350,6 +350,42 @@ public:
     llvm::raw_fd_ostream File(Settings.tgcfi_output, EC);
     File << llvm::json::Value(std::move(J)) << "\n";
   }
+  // get the BbAddress that contains indirect call
+  // write them into myVariable
+  // write myVaribale into ".section_for_indirectcall" in a new binary
+  void addIndirectCallBbAddressIntoBinary(){
+    LLVMContext &Context = M.getContext();
+    IRBuilder<> Builder(Context);
+    for (Function &F : M) {
+      //llvm::errs() << "Function name: " << F.getName() << "\n";
+      for (BasicBlock &BB : F) {
+        for (Instruction &I : BB) {
+          if (auto *CB = dyn_cast<CallBase>(&I)) {
+            //llvm::errs() << "Type of CB: " << CB->isIndirectCall() << "\n";
+            if (CB->isIndirectCall()) {
+              // llvm::errs() << "Indirect Call Function name: " << F.getName() << "\n";
+              BlockAddress *blockAddress = BlockAddress::get(&F, &BB);
+              // llvm::errs() << "BA:" << blockAddress << "\n";
+              Builder.SetInsertPoint(&BB);
+              Value *result = Builder.CreatePtrToInt(blockAddress, Type::getInt64Ty(Context));
+              // llvm::errs() << "result:" << result << "\n";
+              Constant *resultConstant = dyn_cast<Constant>(result);
+              if (!resultConstant) {
+               // llvm::errs() << "convert failed"<< "\n";
+              }
+              // llvm::errs() << "resultConstant:" << resultConstant << "\n";
+              GlobalVariable *MyVariable =
+                  new GlobalVariable(M,
+                                     Type::getInt64Ty(Context), false, GlobalValue::ExternalLinkage, resultConstant,
+                                     "myVariable", nullptr, GlobalValue::NotThreadLocal, 0, true);
+              // llvm::errs() << "Setting section for MyVariable\n";
+              MyVariable->setSection(".section_for_indirectcall");
+            }
+          }
+        }
+      }
+    }
+}
 
   void addSimpleEnforcement() {
     std::vector<CallBase*> CallsToProtect;
@@ -632,6 +668,7 @@ public:
 
     if (Settings.tgcfi_output) {
       writeCallTargetOutput();
+      addIndirectCallBbAddressIntoBinary();
     }
 
     if (Settings.instrument_collectcalltargets) {
