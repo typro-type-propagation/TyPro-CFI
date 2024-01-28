@@ -41,6 +41,7 @@ public:
       }
       if (Settings.tgcfi_output && std::string(Settings.tgcfi_output) == "auto") {
         Settings.tgcfi_output = (new std::string(Settings.output_filename + ".tgcfi.json"))->c_str();
+        Settings.ordered_json_object_name = (new std::string(Settings.output_filename + ".txt"))->c_str();
       }
       if (Settings.output_filename.substr(0, 9) == "conftest-") {
         Settings.graph_output = nullptr;
@@ -314,7 +315,8 @@ public:
     auto *CallMapArgnum = J.getObject("tg_targets_argnum");
     LLVMContext &Context = M.getContext();
     IRBuilder<> Builder(Context);
-
+    //create a vector for callName
+    std::vector<llvm::StringRef> CallNameVec;
     for (auto &F : M.functions()) {
       for (auto &Bb : F) {
         for (auto &Ins : Bb) {
@@ -330,9 +332,10 @@ public:
             auto *HashArr = CallMapHash->getArray(CallName);
             (*CallMapArgnum)[CallName] = llvm::json::Array();
             auto *ArrArgNum = CallMapArgnum->getArray(CallName);
-            for (auto &Ins: Bb) {
-              HashArr->push_back(Ins.getOpcodeName());
+            for (auto &In: Bb) {
+              HashArr->push_back(In.getOpcodeName());
             }
+            CallNameVec.push_back(CallName);
             // llvm::errs() << "Indirect Call Function name: " << F.getName() << "\n";
             BlockAddress *blockAddress = BlockAddress::get(&F, &Bb);
             // llvm::errs() << "BA:" << blockAddress << "\n";
@@ -363,8 +366,13 @@ public:
         }
       }
     }
-
     std::error_code EC;
+    llvm::raw_fd_ostream output_file(Settings.ordered_json_object_name, EC, sys::fs::F_Text);
+
+    // Write data to the file
+    for (const auto &value : CallNameVec) {
+      output_file << value << "\n";
+    }
     llvm::raw_fd_ostream File(Settings.tgcfi_output, EC);
     File << llvm::json::Value(std::move(J)) << "\n";
   }
