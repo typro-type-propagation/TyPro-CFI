@@ -41,6 +41,7 @@ public:
       }
       if (Settings.tgcfi_output && std::string(Settings.tgcfi_output) == "auto") {
         Settings.tgcfi_output = (new std::string(Settings.output_filename + ".tgcfi.json"))->c_str();
+        Settings.ordered_json_object_name = (new std::string(Settings.output_filename + ".txt"))->c_str();
       }
       if (Settings.output_filename.substr(0, 9) == "conftest-") {
         Settings.graph_output = nullptr;
@@ -307,25 +308,50 @@ public:
   void writeCallTargetOutput() {
     llvm::json::Object J;
     J["tg_targets"] = llvm::json::Object();
+    J["tg_targets_hash"] = llvm::json::Object();
     J["tg_targets_argnum"] = llvm::json::Object();
     auto *CallMap = J.getObject("tg_targets");
+    auto *CallMapHash = J.getObject("tg_targets_hash");
     auto *CallMapArgnum = J.getObject("tg_targets_argnum");
-
+    LLVMContext &Context = M.getContext();
+    IRBuilder<> Builder(Context);
+    //create a vector for callName
+    std::vector<llvm::StringRef> CallNameVec;
     for (auto &F : M.functions()) {
       for (auto &Bb : F) {
         for (auto &Ins : Bb) {
           if (auto *Call = dyn_cast<CallBase>(&Ins)) {
             if (!Call->isIndirectCall())
               continue;
-
             auto *TypegraphNode = Ins.getMetadata(LLVMContext::MD_typegraph_node);
             assert(TypegraphNode);
             auto CallName = cast<MDString>(TypegraphNode->getOperand(0))->getString();
             (*CallMap)[CallName] = llvm::json::Array();
             auto *Arr = CallMap->getArray(CallName);
+            (*CallMapHash)[CallName] = llvm::json::Array();
+            auto *HashArr = CallMapHash->getArray(CallName);
             (*CallMapArgnum)[CallName] = llvm::json::Array();
             auto *ArrArgNum = CallMapArgnum->getArray(CallName);
-
+            for (auto &In: Bb) {
+              HashArr->push_back(In.getOpcodeName());
+            }
+            CallNameVec.push_back(CallName);
+            // llvm::errs() << "Indirect Call Function name: " << F.getName() << "\n";
+            BlockAddress *blockAddress = BlockAddress::get(&F, &Bb);
+            // llvm::errs() << "BA:" << blockAddress << "\n";
+            Builder.SetInsertPoint(&Bb);
+            Value *result = Builder.CreatePtrToInt(blockAddress, Type::getInt64Ty(Context));
+            // llvm::errs() << "result:" << result << "\n";
+            Constant *resultConstant = dyn_cast<Constant>(result);
+            if (!resultConstant) {
+              // llvm::errs() << "convert failed"<< "\n";
+            }
+            // llvm::errs() << "resultConstant:" << resultConstant << "\n";
+            GlobalVariable *MyVariable =
+                new GlobalVariable(M, Type::getInt64Ty(Context), false, GlobalValue::ExternalLinkage, resultConstant,
+                                   "myVariable", nullptr, GlobalValue::NotThreadLocal, 0, true);
+            // llvm::errs() << "Setting section for MyVariable\n";
+            MyVariable->setSection(".section_for_indirectcall");
             for (auto &Use : getFunctionUsesForIndirectCall(Call)) {
               if (Use.Function) {
                 Arr->push_back(Use.Function->getName());
@@ -340,11 +366,54 @@ public:
         }
       }
     }
-
     std::error_code EC;
+    llvm::raw_fd_ostream output_file(Settings.ordered_json_object_name, EC, sys::fs::F_Text);
+
+    // Write data to the file
+    for (const auto &value : CallNameVec) {
+      output_file << value << "\n";
+    }
     llvm::raw_fd_ostream File(Settings.tgcfi_output, EC);
     File << llvm::json::Value(std::move(J)) << "\n";
   }
+  // get the BbAddress that contains indirect call
+  // write them into myVariable
+  // write myVaribale into ".section_for_indirectcall" in a new binary
+  /*
+  void addIndirectCallBbAddressIntoBinary(){
+    LLVMContext &Context = M.getContext();
+    IRBuilder<> Builder(Context);
+    for (Function &F : M) {
+      //llvm::errs() << "Function name: " << F.getName() << "\n";
+      for (BasicBlock &BB : F) {
+        for (Instruction &I : BB) {
+          if (auto *CB = dyn_cast<CallBase>(&I)) {
+            //llvm::errs() << "Type of CB: " << CB->isIndirectCall() << "\n";
+            if (CB->isIndirectCall()) {
+              // llvm::errs() << "Indirect Call Function name: " << F.getName() << "\n";
+              BlockAddress *blockAddress = BlockAddress::get(&F, &BB);
+              // llvm::errs() << "BA:" << blockAddress << "\n";
+              Builder.SetInsertPoint(&BB);
+              Value *result = Builder.CreatePtrToInt(blockAddress, Type::getInt64Ty(Context));
+              // llvm::errs() << "result:" << result << "\n";
+              Constant *resultConstant = dyn_cast<Constant>(result);
+              if (!resultConstant) {
+               // llvm::errs() << "convert failed"<< "\n";
+              }
+              // llvm::errs() << "resultConstant:" << resultConstant << "\n";
+              GlobalVariable *MyVariable =
+                  new GlobalVariable(M,
+                                     Type::getInt64Ty(Context), false, GlobalValue::ExternalLinkage, resultConstant,
+                                     "myVariable", nullptr, GlobalValue::NotThreadLocal, 0, true);
+              // llvm::errs() << "Setting section for MyVariable\n";
+              MyVariable->setSection(".section_for_indirectcall");
+            }
+          }
+        }
+      }
+    }
+}
+*/
 
   void addSimpleEnforcement() {
     std::vector<CallBase*> CallsToProtect;

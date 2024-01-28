@@ -55,6 +55,8 @@ struct TypegraphSettings {
   const char *ifcc_output;
   // TG CFI
   const char *tgcfi_output;
+  // TG Ordered json object list name;
+  const char *ordered_json_object_name;
   // LLVM output
   const char *llvm_output;
 
